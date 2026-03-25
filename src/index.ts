@@ -33,8 +33,7 @@ import type { BundledLanguage, BundledTheme } from "shiki";
 // Config
 // ---------------------------------------------------------------------------
 
-const THEME: BundledTheme =
-	(process.env.PRETTY_THEME as BundledTheme | undefined) ?? "github-dark";
+const THEME: BundledTheme = (process.env.PRETTY_THEME as BundledTheme | undefined) ?? "github-dark";
 
 function envInt(name: string, fallback: number): number {
 	const v = Number.parseInt(process.env[name] ?? "", 10);
@@ -68,7 +67,9 @@ const FG_PURPLE = "\x1b[38;2;170;120;200m";
 
 const BG_STDERR = "\x1b[48;2;40;25;25m";
 
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const ESC_RE = "\u001b";
+const ANSI_RE = new RegExp(`${ESC_RE}\\[[0-9;]*m`, "g");
+const ANSI_CAPTURE_RE = new RegExp(`${ESC_RE}\\[([0-9;]*)m`, "g");
 
 // ---------------------------------------------------------------------------
 // Low-contrast fix (same as pi-diff)
@@ -79,19 +80,14 @@ function isLowContrastShikiFg(params: string): boolean {
 	if (params === "38;5;0" || params === "38;5;8") return true;
 	if (!params.startsWith("38;2;")) return false;
 	const parts = params.split(";").map(Number);
-	if (parts.length !== 5 || parts.some((n) => !Number.isFinite(n)))
-		return false;
+	if (parts.length !== 5 || parts.some((n) => !Number.isFinite(n))) return false;
 	const [, , r, g, b] = parts;
 	const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 	return luminance < 72;
 }
 
 function normalizeShikiContrast(ansi: string): string {
-	return ansi.replace(
-		/\x1b\[([0-9;]*)m/g,
-		(seq, params: string) =>
-			isLowContrastShikiFg(params) ? FG_MUTED : seq,
-	);
+	return ansi.replace(ANSI_CAPTURE_RE, (seq, params: string) => (isLowContrastShikiFg(params) ? FG_MUTED : seq));
 }
 
 // ---------------------------------------------------------------------------
@@ -104,10 +100,7 @@ function strip(s: string): string {
 
 function termW(): number {
 	const raw =
-		process.stdout.columns ||
-		(process.stderr as any).columns ||
-		Number.parseInt(process.env.COLUMNS ?? "", 10) ||
-		200;
+		process.stdout.columns || (process.stderr as any).columns || Number.parseInt(process.env.COLUMNS ?? "", 10) || 200;
 	return Math.max(80, Math.min(raw - 4, 210));
 }
 
@@ -132,19 +125,54 @@ function lnum(n: number, w: number): string {
 // ---------------------------------------------------------------------------
 
 const EXT_LANG: Record<string, BundledLanguage> = {
-	ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-	mjs: "javascript", cjs: "javascript",
-	py: "python", rb: "ruby", rs: "rust", go: "go", java: "java",
-	c: "c", cpp: "cpp", h: "c", hpp: "cpp", cs: "csharp",
-	swift: "swift", kt: "kotlin",
-	html: "html", css: "css", scss: "scss", less: "css",
-	json: "json", jsonc: "jsonc", yaml: "yaml", yml: "yaml", toml: "toml",
-	md: "markdown", mdx: "mdx", sql: "sql", sh: "bash", bash: "bash", zsh: "bash",
-	lua: "lua", php: "php", dart: "dart", xml: "xml",
-	graphql: "graphql", svelte: "svelte", vue: "vue",
-	dockerfile: "dockerfile", makefile: "make",
-	zig: "zig", nim: "nim", elixir: "elixir", ex: "elixir",
-	erb: "erb", hbs: "handlebars",
+	ts: "typescript",
+	tsx: "tsx",
+	js: "javascript",
+	jsx: "jsx",
+	mjs: "javascript",
+	cjs: "javascript",
+	py: "python",
+	rb: "ruby",
+	rs: "rust",
+	go: "go",
+	java: "java",
+	c: "c",
+	cpp: "cpp",
+	h: "c",
+	hpp: "cpp",
+	cs: "csharp",
+	swift: "swift",
+	kt: "kotlin",
+	html: "html",
+	css: "css",
+	scss: "scss",
+	less: "css",
+	json: "json",
+	jsonc: "jsonc",
+	yaml: "yaml",
+	yml: "yaml",
+	toml: "toml",
+	md: "markdown",
+	mdx: "mdx",
+	sql: "sql",
+	sh: "bash",
+	bash: "bash",
+	zsh: "bash",
+	lua: "lua",
+	php: "php",
+	dart: "dart",
+	xml: "xml",
+	graphql: "graphql",
+	svelte: "svelte",
+	vue: "vue",
+	dockerfile: "dockerfile",
+	makefile: "make",
+	zig: "zig",
+	nim: "nim",
+	elixir: "elixir",
+	ex: "elixir",
+	erb: "erb",
+	hbs: "handlebars",
 };
 
 function lang(fp: string): BundledLanguage | undefined {
@@ -208,7 +236,7 @@ function detectImageProtocol(): ImageProtocol {
 function tmuxWrap(seq: string): string {
 	if (!IS_TMUX) return seq;
 	// Double all ESC chars inside the sequence
-	const escaped = seq.replace(/\x1b/g, "\x1b\x1b");
+	const escaped = seq.split("\x1b").join("\x1b\x1b");
 	return `\x1bPtmux;${escaped}\x1b\\`;
 }
 
@@ -216,14 +244,11 @@ function tmuxWrap(seq: string): string {
  * Render base64 image inline using iTerm2 inline image protocol.
  * Protocol: ESC ] 1337 ; File=[args] : base64data BEL
  */
-function renderIterm2Image(
-	base64Data: string,
-	opts: { width?: string; name?: string } = {},
-): string {
+function renderIterm2Image(base64Data: string, opts: { width?: string; name?: string } = {}): string {
 	const args: string[] = ["inline=1", "preserveAspectRatio=1"];
 	if (opts.width) args.push(`width=${opts.width}`);
 	if (opts.name) args.push(`name=${Buffer.from(opts.name).toString("base64")}`);
-	const byteSize = Math.ceil(base64Data.length * 3 / 4);
+	const byteSize = Math.ceil((base64Data.length * 3) / 4);
 	args.push(`size=${byteSize}`);
 	const seq = `\x1b]1337;File=${args.join(";")}:${base64Data}\x07`;
 	return tmuxWrap(seq);
@@ -235,10 +260,7 @@ function renderIterm2Image(
  * Chunked in 4096-byte pieces as required by protocol.
  * Supported by: Kitty, Ghostty
  */
-function renderKittyImage(
-	base64Data: string,
-	opts: { cols?: number } = {},
-): string {
+function renderKittyImage(base64Data: string, opts: { cols?: number } = {}): string {
 	const chunks: string[] = [];
 	const CHUNK_SIZE = 4096;
 
@@ -279,96 +301,96 @@ const ICONS_MODE = (process.env.PRETTY_ICONS ?? "nerd").toLowerCase();
 const USE_ICONS = ICONS_MODE !== "none" && ICONS_MODE !== "off";
 
 // Nerd Font codepoints + ANSI color per file type
-const NF_DIR      = `${FG_BLUE}\ue5ff${RST}`;      // folder
-const NF_DIR_OPEN = `${FG_BLUE}\ue5fe${RST}`;      // folder open
-const NF_DEFAULT  = `${FG_DIM}\uf15b${RST}`;       // generic file
+const NF_DIR = `${FG_BLUE}\ue5ff${RST}`; // folder
+const NF_DIR_OPEN = `${FG_BLUE}\ue5fe${RST}`; // folder open
+const NF_DEFAULT = `${FG_DIM}\uf15b${RST}`; // generic file
 
 const EXT_ICON: Record<string, string> = {
 	// TypeScript / JavaScript
-	ts:  `\x1b[38;2;49;120;198m\ue628${RST}`,   // blue
-	tsx: `\x1b[38;2;49;120;198m\ue7ba${RST}`,   // react blue
-	js:  `\x1b[38;2;241;224;90m\ue74e${RST}`,   // yellow
-	jsx: `\x1b[38;2;97;218;251m\ue7ba${RST}`,   // react cyan
+	ts: `\x1b[38;2;49;120;198m\ue628${RST}`, // blue
+	tsx: `\x1b[38;2;49;120;198m\ue7ba${RST}`, // react blue
+	js: `\x1b[38;2;241;224;90m\ue74e${RST}`, // yellow
+	jsx: `\x1b[38;2;97;218;251m\ue7ba${RST}`, // react cyan
 	mjs: `\x1b[38;2;241;224;90m\ue74e${RST}`,
 	cjs: `\x1b[38;2;241;224;90m\ue74e${RST}`,
 
 	// Systems / Backend
-	py:    `\x1b[38;2;55;118;171m\ue73c${RST}`,   // python blue
-	rs:    `\x1b[38;2;222;165;132m\ue7a8${RST}`,   // rust orange
-	go:    `\x1b[38;2;0;173;216m\ue724${RST}`,     // go cyan
-	java:  `\x1b[38;2;204;62;68m\ue738${RST}`,     // java red
-	swift: `\x1b[38;2;255;172;77m\ue755${RST}`,    // swift orange
-	rb:    `\x1b[38;2;204;52;45m\ue739${RST}`,     // ruby red
-	kt:    `\x1b[38;2;126;103;200m\ue634${RST}`,   // kotlin purple
-	c:     `\x1b[38;2;85;154;211m\ue61e${RST}`,    // c blue
-	cpp:   `\x1b[38;2;85;154;211m\ue61d${RST}`,    // cpp blue
-	h:     `\x1b[38;2;140;160;185m\ue61e${RST}`,   // header muted
-	hpp:   `\x1b[38;2;140;160;185m\ue61d${RST}`,
-	cs:    `\x1b[38;2;104;33;122m\ue648${RST}`,    // c# purple
+	py: `\x1b[38;2;55;118;171m\ue73c${RST}`, // python blue
+	rs: `\x1b[38;2;222;165;132m\ue7a8${RST}`, // rust orange
+	go: `\x1b[38;2;0;173;216m\ue724${RST}`, // go cyan
+	java: `\x1b[38;2;204;62;68m\ue738${RST}`, // java red
+	swift: `\x1b[38;2;255;172;77m\ue755${RST}`, // swift orange
+	rb: `\x1b[38;2;204;52;45m\ue739${RST}`, // ruby red
+	kt: `\x1b[38;2;126;103;200m\ue634${RST}`, // kotlin purple
+	c: `\x1b[38;2;85;154;211m\ue61e${RST}`, // c blue
+	cpp: `\x1b[38;2;85;154;211m\ue61d${RST}`, // cpp blue
+	h: `\x1b[38;2;140;160;185m\ue61e${RST}`, // header muted
+	hpp: `\x1b[38;2;140;160;185m\ue61d${RST}`,
+	cs: `\x1b[38;2;104;33;122m\ue648${RST}`, // c# purple
 
 	// Web
-	html:   `\x1b[38;2;228;77;38m\ue736${RST}`,    // html orange
-	css:    `\x1b[38;2;66;165;245m\ue749${RST}`,    // css blue
-	scss:   `\x1b[38;2;207;100;154m\ue749${RST}`,   // scss pink
-	less:   `\x1b[38;2;66;165;245m\ue749${RST}`,
-	vue:    `\x1b[38;2;65;184;131m\ue6a0${RST}`,    // vue green
-	svelte: `\x1b[38;2;255;62;0m\ue697${RST}`,      // svelte red-orange
+	html: `\x1b[38;2;228;77;38m\ue736${RST}`, // html orange
+	css: `\x1b[38;2;66;165;245m\ue749${RST}`, // css blue
+	scss: `\x1b[38;2;207;100;154m\ue749${RST}`, // scss pink
+	less: `\x1b[38;2;66;165;245m\ue749${RST}`,
+	vue: `\x1b[38;2;65;184;131m\ue6a0${RST}`, // vue green
+	svelte: `\x1b[38;2;255;62;0m\ue697${RST}`, // svelte red-orange
 
 	// Config / Data
-	json:  `\x1b[38;2;241;224;90m\ue60b${RST}`,    // json yellow
+	json: `\x1b[38;2;241;224;90m\ue60b${RST}`, // json yellow
 	jsonc: `\x1b[38;2;241;224;90m\ue60b${RST}`,
-	yaml:  `\x1b[38;2;160;116;196m\ue6a8${RST}`,   // yaml purple
-	yml:   `\x1b[38;2;160;116;196m\ue6a8${RST}`,
-	toml:  `\x1b[38;2;160;116;196m\ue6b2${RST}`,   // toml purple
-	xml:   `\x1b[38;2;228;77;38m\ue619${RST}`,      // xml orange
-	sql:   `\x1b[38;2;218;218;218m\ue706${RST}`,    // sql gray
+	yaml: `\x1b[38;2;160;116;196m\ue6a8${RST}`, // yaml purple
+	yml: `\x1b[38;2;160;116;196m\ue6a8${RST}`,
+	toml: `\x1b[38;2;160;116;196m\ue6b2${RST}`, // toml purple
+	xml: `\x1b[38;2;228;77;38m\ue619${RST}`, // xml orange
+	sql: `\x1b[38;2;218;218;218m\ue706${RST}`, // sql gray
 
 	// Markdown / Docs
-	md:  `\x1b[38;2;66;165;245m\ue73e${RST}`,      // markdown blue
+	md: `\x1b[38;2;66;165;245m\ue73e${RST}`, // markdown blue
 	mdx: `\x1b[38;2;66;165;245m\ue73e${RST}`,
 
 	// Shell / Scripts
-	sh:   `\x1b[38;2;137;180;130m\ue795${RST}`,    // shell green
+	sh: `\x1b[38;2;137;180;130m\ue795${RST}`, // shell green
 	bash: `\x1b[38;2;137;180;130m\ue795${RST}`,
-	zsh:  `\x1b[38;2;137;180;130m\ue795${RST}`,
+	zsh: `\x1b[38;2;137;180;130m\ue795${RST}`,
 	fish: `\x1b[38;2;137;180;130m\ue795${RST}`,
-	lua:  `\x1b[38;2;81;160;207m\ue620${RST}`,     // lua blue
-	php:  `\x1b[38;2;137;147;186m\ue73d${RST}`,    // php purple
-	dart: `\x1b[38;2;87;182;240m\ue798${RST}`,     // dart blue
+	lua: `\x1b[38;2;81;160;207m\ue620${RST}`, // lua blue
+	php: `\x1b[38;2;137;147;186m\ue73d${RST}`, // php purple
+	dart: `\x1b[38;2;87;182;240m\ue798${RST}`, // dart blue
 
 	// Images
-	png:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
-	jpg:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	png: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	jpg: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
 	jpeg: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
-	gif:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
-	svg:  `\x1b[38;2;255;180;50m\uf1c5${RST}`,
+	gif: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	svg: `\x1b[38;2;255;180;50m\uf1c5${RST}`,
 	webp: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
-	ico:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	ico: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
 
 	// Misc
-	lock: `\x1b[38;2;130;130;130m\uf023${RST}`,    // lock gray
-	env:  `\x1b[38;2;241;224;90m\ue615${RST}`,     // env yellow
-	graphql: `\x1b[38;2;224;51;144m\ue662${RST}`,  // graphql pink
+	lock: `\x1b[38;2;130;130;130m\uf023${RST}`, // lock gray
+	env: `\x1b[38;2;241;224;90m\ue615${RST}`, // env yellow
+	graphql: `\x1b[38;2;224;51;144m\ue662${RST}`, // graphql pink
 	dockerfile: `\x1b[38;2;56;152;236m\ue7b0${RST}`,
 };
 
 const NAME_ICON: Record<string, string> = {
-	"package.json":      `\x1b[38;2;137;180;130m\ue71e${RST}`,  // npm green
-	"package-lock.json": `\x1b[38;2;130;130;130m\ue71e${RST}`,  // npm gray
-	"tsconfig.json":     `\x1b[38;2;49;120;198m\ue628${RST}`,   // ts blue
-	"biome.json":        `\x1b[38;2;96;165;250m\ue615${RST}`,   // config blue
-	".gitignore":        `\x1b[38;2;222;165;132m\ue702${RST}`,  // git orange
-	".git":              `\x1b[38;2;222;165;132m\ue702${RST}`,
-	".env":              `\x1b[38;2;241;224;90m\ue615${RST}`,    // env yellow
-	".envrc":            `\x1b[38;2;241;224;90m\ue615${RST}`,
-	"dockerfile":        `\x1b[38;2;56;152;236m\ue7b0${RST}`,   // docker blue
-	"makefile":          `\x1b[38;2;130;130;130m\ue615${RST}`,   // make gray
-	"gnumakefile":       `\x1b[38;2;130;130;130m\ue615${RST}`,
-	"readme.md":         `\x1b[38;2;66;165;245m\ue73e${RST}`,   // readme blue
-	"license":           `\x1b[38;2;218;218;218m\ue60a${RST}`,  // license white
-	"cargo.toml":        `\x1b[38;2;222;165;132m\ue7a8${RST}`,  // rust
-	"go.mod":            `\x1b[38;2;0;173;216m\ue724${RST}`,    // go
-	"pyproject.toml":    `\x1b[38;2;55;118;171m\ue73c${RST}`,   // python
+	"package.json": `\x1b[38;2;137;180;130m\ue71e${RST}`, // npm green
+	"package-lock.json": `\x1b[38;2;130;130;130m\ue71e${RST}`, // npm gray
+	"tsconfig.json": `\x1b[38;2;49;120;198m\ue628${RST}`, // ts blue
+	"biome.json": `\x1b[38;2;96;165;250m\ue615${RST}`, // config blue
+	".gitignore": `\x1b[38;2;222;165;132m\ue702${RST}`, // git orange
+	".git": `\x1b[38;2;222;165;132m\ue702${RST}`,
+	".env": `\x1b[38;2;241;224;90m\ue615${RST}`, // env yellow
+	".envrc": `\x1b[38;2;241;224;90m\ue615${RST}`,
+	dockerfile: `\x1b[38;2;56;152;236m\ue7b0${RST}`, // docker blue
+	makefile: `\x1b[38;2;130;130;130m\ue615${RST}`, // make gray
+	gnumakefile: `\x1b[38;2;130;130;130m\ue615${RST}`,
+	"readme.md": `\x1b[38;2;66;165;245m\ue73e${RST}`, // readme blue
+	license: `\x1b[38;2;218;218;218m\ue60a${RST}`, // license white
+	"cargo.toml": `\x1b[38;2;222;165;132m\ue7a8${RST}`, // rust
+	"go.mod": `\x1b[38;2;0;173;216m\ue724${RST}`, // go
+	"pyproject.toml": `\x1b[38;2;55;118;171m\ue73c${RST}`, // python
 };
 
 function fileIcon(fp: string): string {
@@ -403,10 +425,7 @@ function _touch(k: string, v: string[]): string[] {
 	return v;
 }
 
-async function hlBlock(
-	code: string,
-	language: BundledLanguage | undefined,
-): Promise<string[]> {
+async function hlBlock(code: string, language: BundledLanguage | undefined): Promise<string[]> {
 	if (!code) return [""];
 	if (!language || code.length > MAX_HL_CHARS) return code.split("\n");
 
@@ -470,32 +489,24 @@ async function renderFileContent(
 				vis++;
 				j++;
 			}
-			display = code.slice(0, j) + RST + FG_DIM + "›" + RST;
+			display = `${code.slice(0, j)}${RST}${FG_DIM}›${RST}`;
 		}
 		out.push(`${lnum(ln, nw)} ${FG_RULE}│${RST} ${display}${RST}`);
 	}
 
 	out.push(rule(tw));
 	if (total > maxLines) {
-		out.push(
-			`${FG_DIM}  … ${total - maxLines} more lines (${total} total)${RST}`,
-		);
+		out.push(`${FG_DIM}  … ${total - maxLines} more lines (${total} total)${RST}`);
 	}
 	return out.join("\n");
 }
 
 /** Render bash output with colored exit code and stderr highlighting. */
-function renderBashOutput(
-	text: string,
-	exitCode: number | null,
-): { summary: string; body: string } {
+function renderBashOutput(text: string, exitCode: number | null): { summary: string; body: string } {
 	const isOk = exitCode === 0;
 	const statusFg = isOk ? FG_GREEN : FG_RED;
 	const statusIcon = isOk ? "✓" : "✗";
-	const codeStr =
-		exitCode !== null
-			? `${statusFg}${statusIcon} exit ${exitCode}${RST}`
-			: `${FG_YELLOW}⚡ killed${RST}`;
+	const codeStr = exitCode !== null ? `${statusFg}${statusIcon} exit ${exitCode}${RST}` : `${FG_YELLOW}⚡ killed${RST}`;
 
 	const lines = text.split("\n");
 	const maxShow = MAX_PREVIEW_LINES;
@@ -536,9 +547,7 @@ function renderTree(text: string, basePath: string): string {
 	}
 
 	if (total > MAX_PREVIEW_LINES) {
-		out.push(
-			`${FG_RULE}└── ${RST}${FG_DIM}… ${total - MAX_PREVIEW_LINES} more entries${RST}`,
-		);
+		out.push(`${FG_RULE}└── ${RST}${FG_DIM}… ${total - MAX_PREVIEW_LINES} more entries${RST}`);
 	}
 
 	return out.join("\n");
@@ -567,9 +576,7 @@ function renderFindResults(text: string): string {
 		out.push(`${dirIcon()}${FG_BLUE}${BOLD}${dir}/${RST}`);
 		for (let i = 0; i < files.length; i++) {
 			if (count >= MAX_PREVIEW_LINES) {
-				out.push(
-					`  ${FG_DIM}… ${lines.length - count} more files${RST}`,
-				);
+				out.push(`  ${FG_DIM}… ${lines.length - count} more files${RST}`);
 				return out.join("\n");
 			}
 			const isLast = i === files.length - 1;
@@ -584,13 +591,9 @@ function renderFindResults(text: string): string {
 }
 
 /** Render grep results with highlighted matches and line numbers. */
-async function renderGrepResults(
-	text: string,
-	pattern: string,
-): Promise<string> {
+async function renderGrepResults(text: string, pattern: string): Promise<string> {
 	const lines = text.split("\n");
-	if (!lines.length || (lines.length === 1 && !lines[0].trim()))
-		return `${FG_DIM}(no matches)${RST}`;
+	if (!lines.length || (lines.length === 1 && !lines[0].trim())) return `${FG_DIM}(no matches)${RST}`;
 
 	const tw = termW();
 	const out: string[] = [];
@@ -612,7 +615,7 @@ async function renderGrepResults(
 		}
 
 		// ripgrep-style: "file:line:content" or "file-line-content" or just "file"
-		const fileMatch = line.match(/^(.+?)[:\-](\d+)[:\-](.*)$/);
+		const fileMatch = line.match(/^(.+?)[:-](\d+)[:-](.*)$/);
 		if (fileMatch) {
 			const [, file, lineNo, content] = fileMatch;
 			if (file !== currentFile) {
@@ -625,10 +628,7 @@ async function renderGrepResults(
 			const nw = Math.max(3, lineNo.length);
 			let display = content;
 			if (re) {
-				display = content.replace(
-					re,
-					`${RST}${FG_YELLOW}${BOLD}$1${RST}`,
-				);
+				display = content.replace(re, `${RST}${FG_YELLOW}${BOLD}$1${RST}`);
 			}
 			out.push(`  ${lnum(Number(lineNo), nw)} ${FG_RULE}│${RST} ${display}${RST}`);
 			count++;
@@ -726,9 +726,7 @@ export default function piPrettyExtension(pi: any): void {
 			const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 			const offset = args?.offset ? ` ${theme.fg("muted", `from line ${args.offset}`)}` : "";
 			const limit = args?.limit ? ` ${theme.fg("muted", `(${args.limit} lines)`)}` : "";
-			text.setText(
-				`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", sp(fp))}${offset}${limit}`,
-			);
+			text.setText(`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", sp(fp))}${offset}${limit}`);
 			return text;
 		},
 
@@ -736,10 +734,11 @@ export default function piPrettyExtension(pi: any): void {
 			const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 
 			if (ctx.isError) {
-				const e = result.content
-					?.filter((c: any) => c.type === "text")
-					.map((c: any) => c.text || "")
-					.join("\n") ?? "Error";
+				const e =
+					result.content
+						?.filter((c: any) => c.type === "text")
+						.map((c: any) => c.text || "")
+						.join("\n") ?? "Error";
 				text.setText(`\n${theme.fg("error", e)}`);
 				return text;
 			}
@@ -751,7 +750,7 @@ export default function piPrettyExtension(pi: any): void {
 				const tw = termW();
 				const out: string[] = [];
 				const fname = basename(d.filePath);
-				const byteSize = Math.ceil((d.data as string).length * 3 / 4);
+				const byteSize = Math.ceil(((d.data as string).length * 3) / 4);
 				const sizeStr = humanSize(byteSize);
 				const mimeStr = d.mimeType ?? "image";
 
@@ -764,10 +763,12 @@ export default function piPrettyExtension(pi: any): void {
 					out.push(renderKittyImage(d.data, { cols: imgCols }));
 				} else if (protocol === "iterm2") {
 					const imgWidth = Math.min(tw - 4, 80);
-					out.push(renderIterm2Image(d.data, {
-						width: `${imgWidth}`,
-						name: fname,
-					}));
+					out.push(
+						renderIterm2Image(d.data, {
+							width: `${imgWidth}`,
+							name: fname,
+						}),
+					);
 				} else {
 					out.push(`  ${FG_DIM}(Inline image preview requires Ghostty, iTerm2, WezTerm, or Kitty)${RST}`);
 				}
@@ -826,15 +827,10 @@ export default function piPrettyExtension(pi: any): void {
 				// Try to extract exit code from the output
 				let exitCode: number | null = 0;
 				if (textContent) {
-					const exitMatch = textContent.match(
-						/(?:exit code|exited with|exit status)[:\s]*(\d+)/i,
-					);
+					const exitMatch = textContent.match(/(?:exit code|exited with|exit status)[:\s]*(\d+)/i);
 					if (exitMatch) exitCode = Number(exitMatch[1]);
 					// Check for common error indicators
-					if (
-						textContent.includes("command not found") ||
-						textContent.includes("No such file")
-					) {
+					if (textContent.includes("command not found") || textContent.includes("No such file")) {
 						exitCode = 1;
 					}
 				}
@@ -852,9 +848,7 @@ export default function piPrettyExtension(pi: any): void {
 			renderCall(args: any, theme: any, ctx: any) {
 				const cmd = args?.command ?? "";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				const timeout = args?.timeout
-					? ` ${theme.fg("muted", `(${args.timeout}s timeout)`)}`
-					: "";
+				const timeout = args?.timeout ? ` ${theme.fg("muted", `(${args.timeout}s timeout)`)}` : "";
 				text.setText(
 					`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", cmd.length > 80 ? cmd.slice(0, 77) + "…" : cmd)}${timeout}`,
 				);
@@ -865,10 +859,11 @@ export default function piPrettyExtension(pi: any): void {
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 
 				if (ctx.isError) {
-					const e = result.content
-						?.filter((c: any) => c.type === "text")
-						.map((c: any) => c.text || "")
-						.join("\n") ?? "Error";
+					const e =
+						result.content
+							?.filter((c: any) => c.type === "text")
+							.map((c: any) => c.text || "")
+							.join("\n") ?? "Error";
 					text.setText(`\n${theme.fg("error", e)}`);
 					return text;
 				}
@@ -902,9 +897,7 @@ export default function piPrettyExtension(pi: any): void {
 				}
 
 				const fallback = result.content?.[0]?.text ?? "done";
-				text.setText(
-					`  ${theme.fg("dim", String(fallback).slice(0, 120))}`,
-				);
+				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
 				return text;
 			},
 		});
@@ -930,9 +923,7 @@ export default function piPrettyExtension(pi: any): void {
 					.join("\n");
 
 				const fp = params.path ?? cwd;
-				const entryCount = textContent
-					? textContent.trim().split("\n").filter(Boolean).length
-					: 0;
+				const entryCount = textContent ? textContent.trim().split("\n").filter(Boolean).length : 0;
 
 				(result as any).details = {
 					_type: "lsResult",
@@ -947,9 +938,7 @@ export default function piPrettyExtension(pi: any): void {
 			renderCall(args: any, theme: any, ctx: any) {
 				const fp = args?.path ?? ".";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				text.setText(
-					`${theme.fg("toolTitle", theme.bold("ls"))} ${theme.fg("accent", sp(fp))}`,
-				);
+				text.setText(`${theme.fg("toolTitle", theme.bold("ls"))} ${theme.fg("accent", sp(fp))}`);
 				return text;
 			},
 
@@ -957,10 +946,11 @@ export default function piPrettyExtension(pi: any): void {
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 
 				if (ctx.isError) {
-					const e = result.content
-						?.filter((c: any) => c.type === "text")
-						.map((c: any) => c.text || "")
-						.join("\n") ?? "Error";
+					const e =
+						result.content
+							?.filter((c: any) => c.type === "text")
+							.map((c: any) => c.text || "")
+							.join("\n") ?? "Error";
 					text.setText(`\n${theme.fg("error", e)}`);
 					return text;
 				}
@@ -974,9 +964,7 @@ export default function piPrettyExtension(pi: any): void {
 				}
 
 				const fallback = result.content?.[0]?.text ?? "listed";
-				text.setText(
-					`  ${theme.fg("dim", String(fallback).slice(0, 120))}`,
-				);
+				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
 				return text;
 			},
 		});
@@ -1001,9 +989,7 @@ export default function piPrettyExtension(pi: any): void {
 					.map((c: any) => c.text || "")
 					.join("\n");
 
-				const matchCount = textContent
-					? textContent.trim().split("\n").filter(Boolean).length
-					: 0;
+				const matchCount = textContent ? textContent.trim().split("\n").filter(Boolean).length : 0;
 
 				(result as any).details = {
 					_type: "findResult",
@@ -1019,9 +1005,7 @@ export default function piPrettyExtension(pi: any): void {
 				const pattern = args?.pattern ?? "";
 				const path = args?.path ? ` ${theme.fg("muted", `in ${sp(args.path)}`)}` : "";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				text.setText(
-					`${theme.fg("toolTitle", theme.bold("find"))} ${theme.fg("accent", pattern)}${path}`,
-				);
+				text.setText(`${theme.fg("toolTitle", theme.bold("find"))} ${theme.fg("accent", pattern)}${path}`);
 				return text;
 			},
 
@@ -1029,10 +1013,11 @@ export default function piPrettyExtension(pi: any): void {
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 
 				if (ctx.isError) {
-					const e = result.content
-						?.filter((c: any) => c.type === "text")
-						.map((c: any) => c.text || "")
-						.join("\n") ?? "Error";
+					const e =
+						result.content
+							?.filter((c: any) => c.type === "text")
+							.map((c: any) => c.text || "")
+							.join("\n") ?? "Error";
 					text.setText(`\n${theme.fg("error", e)}`);
 					return text;
 				}
@@ -1046,9 +1031,7 @@ export default function piPrettyExtension(pi: any): void {
 				}
 
 				const fallback = result.content?.[0]?.text ?? "found";
-				text.setText(
-					`  ${theme.fg("dim", String(fallback).slice(0, 120))}`,
-				);
+				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
 				return text;
 			},
 		});
@@ -1077,8 +1060,7 @@ export default function piPrettyExtension(pi: any): void {
 					? textContent
 							.trim()
 							.split("\n")
-							.filter((l: string) => l.match(/^.+?[:\-]\d+[:\-]/))
-							.length
+							.filter((l: string) => l.match(/^.+?[:\-]\d+[:\-]/)).length
 					: 0;
 
 				(result as any).details = {
@@ -1096,9 +1078,7 @@ export default function piPrettyExtension(pi: any): void {
 				const path = args?.path ? ` ${theme.fg("muted", `in ${sp(args.path)}`)}` : "";
 				const glob = args?.glob ? ` ${theme.fg("muted", `(${args.glob})`)}` : "";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				text.setText(
-					`${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", pattern)}${path}${glob}`,
-				);
+				text.setText(`${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", pattern)}${path}${glob}`);
 				return text;
 			},
 
@@ -1106,10 +1086,11 @@ export default function piPrettyExtension(pi: any): void {
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 
 				if (ctx.isError) {
-					const e = result.content
-						?.filter((c: any) => c.type === "text")
-						.map((c: any) => c.text || "")
-						.join("\n") ?? "Error";
+					const e =
+						result.content
+							?.filter((c: any) => c.type === "text")
+							.map((c: any) => c.text || "")
+							.join("\n") ?? "Error";
 					text.setText(`\n${theme.fg("error", e)}`);
 					return text;
 				}
@@ -1135,9 +1116,7 @@ export default function piPrettyExtension(pi: any): void {
 				}
 
 				const fallback = result.content?.[0]?.text ?? "searched";
-				text.setText(
-					`  ${theme.fg("dim", String(fallback).slice(0, 120))}`,
-				);
+				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
 				return text;
 			},
 		});

@@ -1,50 +1,50 @@
 {
-  "name": "@heyhuynhgiabuu/pi-pretty",
-  "version": "0.1.7",
-  "description": "Pretty terminal output for pi — syntax-highlighted file reads, colored bash output, tree-view directory listings, and more.",
-  "author": "huynhgiabuu",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/heyhuynhgiabuu/pi-pretty.git"
-  },
-  "homepage": "https://github.com/heyhuynhgiabuu/pi-pretty#readme",
-  "bugs": {
-    "url": "https://github.com/heyhuynhgiabuu/pi-pretty/issues"
-  },
-  "keywords": [
-    "pi-package",
-    "pi",
-    "pi-extension",
-    "syntax-highlighting",
-    "shiki",
-    "terminal",
-    "pretty-print"
-  ],
-  "dependencies": {
-    "@shikijs/cli": "^4.0.2"
-  },
-  "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "@biomejs/biome": "^2.3.5",
-    "vitest": "^4.0.18"
-  },
-  "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --fix src/",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "pi": {
-    "extensions": [
-      "./src/index.ts"
-    ]
-  }
+	"name": "@heyhuynhgiabuu/pi-pretty",
+	"version": "0.1.7",
+	"description": "Pretty terminal output for pi — syntax-highlighted file reads, colored bash output, tree-view directory listings, and more.",
+	"author": "huynhgiabuu",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/heyhuynhgiabuu/pi-pretty.git"
+	},
+	"homepage": "https://github.com/heyhuynhgiabuu/pi-pretty#readme",
+	"bugs": {
+		"url": "https://github.com/heyhuynhgiabuu/pi-pretty/issues"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-extension",
+		"syntax-highlighting",
+		"shiki",
+		"terminal",
+		"pretty-print"
+	],
+	"dependencies": {
+		"@shikijs/cli": "^4.0.2"
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-coding-agent": "*",
+		"@mariozechner/pi-tui": "*"
+	},
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"typescript": "^5.0.0",
+		"@biomejs/biome": "^2.3.5",
+		"vitest": "^4.0.18"
+	},
+	"scripts": {
+		"build": "tsc",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check src/",
+		"lint:fix": "biome check --fix src/",
+		"test": "vitest run --passWithNoTests",
+		"test:watch": "vitest --passWithNoTests"
+	},
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	}
 }
