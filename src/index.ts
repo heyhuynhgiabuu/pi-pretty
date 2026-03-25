@@ -156,39 +156,231 @@ function lang(fp: string): BundledLanguage | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// File-type icons
+// Terminal image rendering (iTerm2 / Kitty / Ghostty inline image protocols)
+// Handles tmux passthrough for image protocols.
 // ---------------------------------------------------------------------------
 
-const ICON_DIR = "📁";
-const ICON_DEFAULT = "  ";
+type ImageProtocol = "iterm2" | "kitty" | "none";
+
+const IS_TMUX = !!process.env.TMUX;
+
+/**
+ * Detect the outer terminal when running inside tmux.
+ * tmux sets TERM_PROGRAM=tmux, but the real terminal is often in
+ * the environment of the tmux server or can be inferred.
+ */
+function getOuterTerminal(): string {
+	// Direct terminal (not in tmux)
+	const term = process.env.TERM_PROGRAM ?? "";
+	if (term !== "tmux" && term !== "screen") return term;
+
+	// Inside tmux: check common env vars that leak through
+	// Ghostty sets this; iTerm2 sets LC_TERMINAL
+	if (process.env.LC_TERMINAL === "iTerm2") return "iTerm.app";
+
+	// TERM_PROGRAM_VERSION sometimes survives into tmux
+	// Try to detect via COLORTERM or other hints
+	if (process.env.GHOSTTY_RESOURCES_DIR) return "ghostty";
+
+	// Default: assume modern terminal if truecolor is supported
+	if (process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit") {
+		// Can't determine exact terminal, but likely modern
+		return "unknown-modern";
+	}
+	return term;
+}
+
+function detectImageProtocol(): ImageProtocol {
+	const term = getOuterTerminal();
+	// Ghostty and Kitty use the Kitty graphics protocol
+	if (term === "ghostty" || term === "kitty") return "kitty";
+	// iTerm2, WezTerm, Mintty support the iTerm2 protocol
+	if (["iTerm.app", "WezTerm", "mintty"].includes(term)) return "iterm2";
+	if (process.env.LC_TERMINAL === "iTerm2") return "iterm2";
+	return "none";
+}
+
+/**
+ * Wrap escape sequence for tmux passthrough.
+ * tmux requires: ESC Ptmux; <escaped-sequence> ESC \
+ * Inner ESC chars must be doubled.
+ */
+function tmuxWrap(seq: string): string {
+	if (!IS_TMUX) return seq;
+	// Double all ESC chars inside the sequence
+	const escaped = seq.replace(/\x1b/g, "\x1b\x1b");
+	return `\x1bPtmux;${escaped}\x1b\\`;
+}
+
+/**
+ * Render base64 image inline using iTerm2 inline image protocol.
+ * Protocol: ESC ] 1337 ; File=[args] : base64data BEL
+ */
+function renderIterm2Image(
+	base64Data: string,
+	opts: { width?: string; name?: string } = {},
+): string {
+	const args: string[] = ["inline=1", "preserveAspectRatio=1"];
+	if (opts.width) args.push(`width=${opts.width}`);
+	if (opts.name) args.push(`name=${Buffer.from(opts.name).toString("base64")}`);
+	const byteSize = Math.ceil(base64Data.length * 3 / 4);
+	args.push(`size=${byteSize}`);
+	const seq = `\x1b]1337;File=${args.join(";")}:${base64Data}\x07`;
+	return tmuxWrap(seq);
+}
+
+/**
+ * Render base64 image inline using Kitty graphics protocol.
+ * Protocol: ESC _G <key>=<value>,...; <base64data> ESC \
+ * Chunked in 4096-byte pieces as required by protocol.
+ * Supported by: Kitty, Ghostty
+ */
+function renderKittyImage(
+	base64Data: string,
+	opts: { cols?: number } = {},
+): string {
+	const chunks: string[] = [];
+	const CHUNK_SIZE = 4096;
+
+	for (let i = 0; i < base64Data.length; i += CHUNK_SIZE) {
+		const chunk = base64Data.slice(i, i + CHUNK_SIZE);
+		const isFirst = i === 0;
+		const isLast = i + CHUNK_SIZE >= base64Data.length;
+		const more = isLast ? 0 : 1;
+
+		if (isFirst) {
+			const colPart = opts.cols ? `,c=${opts.cols}` : "";
+			chunks.push(tmuxWrap(`\x1b_Ga=T,f=100,t=d,m=${more}${colPart};${chunk}\x1b\\`));
+		} else {
+			chunks.push(tmuxWrap(`\x1b_Gm=${more};${chunk}\x1b\\`));
+		}
+	}
+
+	return chunks.join("");
+}
+
+/**
+ * Get human-readable file size
+ */
+function humanSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes}B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+// ---------------------------------------------------------------------------
+// File-type icons — Nerd Font glyphs (Seti-UI + Devicons, stable in NF v3+)
+//
+// Requires a Nerd Font installed (e.g., JetBrainsMono Nerd Font, FiraCode NF).
+// Fallback: set PRETTY_ICONS=none to disable icons.
+// ---------------------------------------------------------------------------
+
+const ICONS_MODE = (process.env.PRETTY_ICONS ?? "nerd").toLowerCase();
+const USE_ICONS = ICONS_MODE !== "none" && ICONS_MODE !== "off";
+
+// Nerd Font codepoints + ANSI color per file type
+const NF_DIR      = `${FG_BLUE}\ue5ff${RST}`;      // folder
+const NF_DIR_OPEN = `${FG_BLUE}\ue5fe${RST}`;      // folder open
+const NF_DEFAULT  = `${FG_DIM}\uf15b${RST}`;       // generic file
 
 const EXT_ICON: Record<string, string> = {
-	ts: "🟦", tsx: "🟦", js: "🟨", jsx: "🟨", mjs: "🟨", cjs: "🟨",
-	py: "🐍", rb: "💎", rs: "🦀", go: "🔵", java: "☕",
-	c: "🔧", cpp: "🔧", h: "🔧", hpp: "🔧", cs: "🟪",
-	swift: "🍊", kt: "🟣",
-	html: "🌐", css: "🎨", scss: "🎨", less: "🎨",
-	json: "📋", yaml: "📋", yml: "📋", toml: "📋",
-	md: "📝", mdx: "📝",
-	sql: "🗃️", sh: "🐚", bash: "🐚", zsh: "🐚",
-	png: "🖼️", jpg: "🖼️", jpeg: "🖼️", gif: "🖼️", svg: "🖼️", webp: "🖼️",
-	lock: "🔒", env: "🔐",
+	// TypeScript / JavaScript
+	ts:  `\x1b[38;2;49;120;198m\ue628${RST}`,   // blue
+	tsx: `\x1b[38;2;49;120;198m\ue7ba${RST}`,   // react blue
+	js:  `\x1b[38;2;241;224;90m\ue74e${RST}`,   // yellow
+	jsx: `\x1b[38;2;97;218;251m\ue7ba${RST}`,   // react cyan
+	mjs: `\x1b[38;2;241;224;90m\ue74e${RST}`,
+	cjs: `\x1b[38;2;241;224;90m\ue74e${RST}`,
+
+	// Systems / Backend
+	py:    `\x1b[38;2;55;118;171m\ue73c${RST}`,   // python blue
+	rs:    `\x1b[38;2;222;165;132m\ue7a8${RST}`,   // rust orange
+	go:    `\x1b[38;2;0;173;216m\ue724${RST}`,     // go cyan
+	java:  `\x1b[38;2;204;62;68m\ue738${RST}`,     // java red
+	swift: `\x1b[38;2;255;172;77m\ue755${RST}`,    // swift orange
+	rb:    `\x1b[38;2;204;52;45m\ue739${RST}`,     // ruby red
+	kt:    `\x1b[38;2;126;103;200m\ue634${RST}`,   // kotlin purple
+	c:     `\x1b[38;2;85;154;211m\ue61e${RST}`,    // c blue
+	cpp:   `\x1b[38;2;85;154;211m\ue61d${RST}`,    // cpp blue
+	h:     `\x1b[38;2;140;160;185m\ue61e${RST}`,   // header muted
+	hpp:   `\x1b[38;2;140;160;185m\ue61d${RST}`,
+	cs:    `\x1b[38;2;104;33;122m\ue648${RST}`,    // c# purple
+
+	// Web
+	html:   `\x1b[38;2;228;77;38m\ue736${RST}`,    // html orange
+	css:    `\x1b[38;2;66;165;245m\ue749${RST}`,    // css blue
+	scss:   `\x1b[38;2;207;100;154m\ue749${RST}`,   // scss pink
+	less:   `\x1b[38;2;66;165;245m\ue749${RST}`,
+	vue:    `\x1b[38;2;65;184;131m\ue6a0${RST}`,    // vue green
+	svelte: `\x1b[38;2;255;62;0m\ue697${RST}`,      // svelte red-orange
+
+	// Config / Data
+	json:  `\x1b[38;2;241;224;90m\ue60b${RST}`,    // json yellow
+	jsonc: `\x1b[38;2;241;224;90m\ue60b${RST}`,
+	yaml:  `\x1b[38;2;160;116;196m\ue6a8${RST}`,   // yaml purple
+	yml:   `\x1b[38;2;160;116;196m\ue6a8${RST}`,
+	toml:  `\x1b[38;2;160;116;196m\ue6b2${RST}`,   // toml purple
+	xml:   `\x1b[38;2;228;77;38m\ue619${RST}`,      // xml orange
+	sql:   `\x1b[38;2;218;218;218m\ue706${RST}`,    // sql gray
+
+	// Markdown / Docs
+	md:  `\x1b[38;2;66;165;245m\ue73e${RST}`,      // markdown blue
+	mdx: `\x1b[38;2;66;165;245m\ue73e${RST}`,
+
+	// Shell / Scripts
+	sh:   `\x1b[38;2;137;180;130m\ue795${RST}`,    // shell green
+	bash: `\x1b[38;2;137;180;130m\ue795${RST}`,
+	zsh:  `\x1b[38;2;137;180;130m\ue795${RST}`,
+	fish: `\x1b[38;2;137;180;130m\ue795${RST}`,
+	lua:  `\x1b[38;2;81;160;207m\ue620${RST}`,     // lua blue
+	php:  `\x1b[38;2;137;147;186m\ue73d${RST}`,    // php purple
+	dart: `\x1b[38;2;87;182;240m\ue798${RST}`,     // dart blue
+
+	// Images
+	png:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	jpg:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	jpeg: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	gif:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	svg:  `\x1b[38;2;255;180;50m\uf1c5${RST}`,
+	webp: `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+	ico:  `\x1b[38;2;160;116;196m\uf1c5${RST}`,
+
+	// Misc
+	lock: `\x1b[38;2;130;130;130m\uf023${RST}`,    // lock gray
+	env:  `\x1b[38;2;241;224;90m\ue615${RST}`,     // env yellow
+	graphql: `\x1b[38;2;224;51;144m\ue662${RST}`,  // graphql pink
+	dockerfile: `\x1b[38;2;56;152;236m\ue7b0${RST}`,
 };
 
 const NAME_ICON: Record<string, string> = {
-	"package.json": "📦", "package-lock.json": "📦",
-	"tsconfig.json": "🟦", "biome.json": "🧹",
-	".gitignore": "🙈", ".env": "🔐", ".envrc": "🔐",
-	dockerfile: "🐳", makefile: "🔧", gnumakefile: "🔧",
-	"readme.md": "📖", "license": "⚖️",
-	"cargo.toml": "🦀", "go.mod": "🔵", "pyproject.toml": "🐍",
+	"package.json":      `\x1b[38;2;137;180;130m\ue71e${RST}`,  // npm green
+	"package-lock.json": `\x1b[38;2;130;130;130m\ue71e${RST}`,  // npm gray
+	"tsconfig.json":     `\x1b[38;2;49;120;198m\ue628${RST}`,   // ts blue
+	"biome.json":        `\x1b[38;2;96;165;250m\ue615${RST}`,   // config blue
+	".gitignore":        `\x1b[38;2;222;165;132m\ue702${RST}`,  // git orange
+	".git":              `\x1b[38;2;222;165;132m\ue702${RST}`,
+	".env":              `\x1b[38;2;241;224;90m\ue615${RST}`,    // env yellow
+	".envrc":            `\x1b[38;2;241;224;90m\ue615${RST}`,
+	"dockerfile":        `\x1b[38;2;56;152;236m\ue7b0${RST}`,   // docker blue
+	"makefile":          `\x1b[38;2;130;130;130m\ue615${RST}`,   // make gray
+	"gnumakefile":       `\x1b[38;2;130;130;130m\ue615${RST}`,
+	"readme.md":         `\x1b[38;2;66;165;245m\ue73e${RST}`,   // readme blue
+	"license":           `\x1b[38;2;218;218;218m\ue60a${RST}`,  // license white
+	"cargo.toml":        `\x1b[38;2;222;165;132m\ue7a8${RST}`,  // rust
+	"go.mod":            `\x1b[38;2;0;173;216m\ue724${RST}`,    // go
+	"pyproject.toml":    `\x1b[38;2;55;118;171m\ue73c${RST}`,   // python
 };
 
 function fileIcon(fp: string): string {
+	if (!USE_ICONS) return "";
 	const base = basename(fp).toLowerCase();
-	if (NAME_ICON[base]) return NAME_ICON[base];
+	if (NAME_ICON[base]) return `${NAME_ICON[base]} `;
 	const ext = extname(fp).slice(1).toLowerCase();
-	return EXT_ICON[ext] ?? ICON_DEFAULT;
+	return EXT_ICON[ext] ? `${EXT_ICON[ext]} ` : `${NF_DEFAULT} `;
+}
+
+function dirIcon(): string {
+	return USE_ICONS ? `${NF_DIR} ` : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -336,11 +528,11 @@ function renderTree(text: string, basePath: string): string {
 		// Detect directories (entries ending with /)
 		const isDir = entry.endsWith("/");
 		const name = isDir ? entry.slice(0, -1) : entry;
-		const icon = isDir ? ICON_DIR : fileIcon(name);
+		const icon = isDir ? dirIcon() : fileIcon(name);
 		const fg = isDir ? FG_BLUE + BOLD : "";
 		const reset = isDir ? RST : "";
 
-		out.push(`${connector}${icon} ${fg}${name}${reset}`);
+		out.push(`${connector}${icon}${fg}${name}${reset}`);
 	}
 
 	if (total > MAX_PREVIEW_LINES) {
@@ -372,7 +564,7 @@ function renderFindResults(text: string): string {
 
 	for (const [dir, files] of groups) {
 		if (count > 0) out.push(""); // blank line between groups
-		out.push(`${ICON_DIR} ${FG_BLUE}${BOLD}${dir}/${RST}`);
+		out.push(`${dirIcon()}${FG_BLUE}${BOLD}${dir}/${RST}`);
 		for (let i = 0; i < files.length; i++) {
 			if (count >= MAX_PREVIEW_LINES) {
 				out.push(
@@ -383,7 +575,7 @@ function renderFindResults(text: string): string {
 			const isLast = i === files.length - 1;
 			const prefix = isLast ? "└── " : "├── ";
 			const icon = fileIcon(files[i]);
-			out.push(`  ${FG_RULE}${prefix}${RST}${icon} ${files[i]}`);
+			out.push(`  ${FG_RULE}${prefix}${RST}${icon}${files[i]}`);
 			count++;
 		}
 	}
@@ -426,7 +618,7 @@ async function renderGrepResults(
 			if (file !== currentFile) {
 				if (currentFile) out.push(""); // blank line between files
 				const icon = fileIcon(file);
-				out.push(`${icon} ${FG_BLUE}${BOLD}${file}${RST}`);
+				out.push(`${icon}${FG_BLUE}${BOLD}${file}${RST}`);
 				currentFile = file;
 			}
 
@@ -466,11 +658,11 @@ export default function piPrettyExtension(pi: any): void {
 
 	try {
 		const sdk = require("@mariozechner/pi-coding-agent");
-		createReadTool = sdk.createReadTool;
-		createBashTool = sdk.createBashTool;
-		createLsTool = sdk.createLsTool;
-		createFindTool = sdk.createFindTool;
-		createGrepTool = sdk.createGrepTool;
+		createReadTool = sdk.createReadToolDefinition ?? sdk.createReadTool;
+		createBashTool = sdk.createBashToolDefinition ?? sdk.createBashTool;
+		createLsTool = sdk.createLsToolDefinition ?? sdk.createLsTool;
+		createFindTool = sdk.createFindToolDefinition ?? sdk.createFindTool;
+		createGrepTool = sdk.createGrepToolDefinition ?? sdk.createGrepTool;
 		TextComponent = require("@mariozechner/pi-tui").Text;
 	} catch {
 		return;
@@ -496,6 +688,18 @@ export default function piPrettyExtension(pi: any): void {
 
 			const fp = params.path ?? "";
 			const offset = params.offset ?? 1;
+
+			// Check for image content
+			const imageBlock = result.content?.find((c: any) => c.type === "image");
+			if (imageBlock) {
+				(result as any).details = {
+					_type: "readImage",
+					filePath: fp,
+					data: imageBlock.data,
+					mimeType: imageBlock.mimeType ?? "image/png",
+				};
+				return result;
+			}
 
 			// Extract text content for rendering
 			const textContent = result.content
@@ -541,6 +745,38 @@ export default function piPrettyExtension(pi: any): void {
 			}
 
 			const d = result.details;
+
+			// Image rendering
+			if (d?._type === "readImage") {
+				const tw = termW();
+				const out: string[] = [];
+				const fname = basename(d.filePath);
+				const byteSize = Math.ceil((d.data as string).length * 3 / 4);
+				const sizeStr = humanSize(byteSize);
+				const mimeStr = d.mimeType ?? "image";
+
+				out.push(`  ${fileIcon(d.filePath)}${FG_DIM}${mimeStr} · ${sizeStr}${RST}`);
+				out.push(rule(tw));
+
+				const protocol = detectImageProtocol();
+				if (protocol === "kitty") {
+					const imgCols = Math.min(tw - 4, 80);
+					out.push(renderKittyImage(d.data, { cols: imgCols }));
+				} else if (protocol === "iterm2") {
+					const imgWidth = Math.min(tw - 4, 80);
+					out.push(renderIterm2Image(d.data, {
+						width: `${imgWidth}`,
+						name: fname,
+					}));
+				} else {
+					out.push(`  ${FG_DIM}(Inline image preview requires Ghostty, iTerm2, WezTerm, or Kitty)${RST}`);
+				}
+
+				out.push(rule(tw));
+				text.setText(out.join("\n"));
+				return text;
+			}
+
 			if (d?._type === "readFile" && d.content) {
 				const key = `read:${d.filePath}:${d.offset}:${d.lineCount}:${termW()}`;
 				if (ctx.state._rk !== key) {
@@ -639,10 +875,29 @@ export default function piPrettyExtension(pi: any): void {
 
 				const d = result.details;
 				if (d?._type === "bashResult") {
-					const { summary } = renderBashOutput(d.text, d.exitCode);
-					const lines = d.text.split("\n").length;
-					const lineInfo = lines > 1 ? `  ${FG_DIM}(${lines} lines)${RST}` : "";
-					text.setText(`  ${summary}${lineInfo}`);
+					const { summary, body } = renderBashOutput(d.text, d.exitCode);
+					const lines = d.text.split("\n");
+					const lineCount = lines.length;
+					const lineInfo = lineCount > 1 ? `  ${FG_DIM}(${lineCount} lines)${RST}` : "";
+					const header = `  ${summary}${lineInfo}`;
+
+					// Show output content
+					if (d.text.trim()) {
+						const maxShow = ctx.expanded ? lineCount : MAX_PREVIEW_LINES;
+						const show = lines.slice(0, maxShow);
+						const tw = termW();
+						const out: string[] = [header, rule(tw)];
+						for (const line of show) {
+							out.push(`  ${line}`);
+						}
+						out.push(rule(tw));
+						if (lineCount > maxShow) {
+							out.push(`${FG_DIM}  … ${lineCount - maxShow} more lines${RST}`);
+						}
+						text.setText(out.join("\n"));
+					} else {
+						text.setText(header);
+					}
 					return text;
 				}
 
