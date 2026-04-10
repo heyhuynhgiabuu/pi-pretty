@@ -29,6 +29,8 @@ import { basename, dirname, extname, join, relative } from "node:path";
 import { codeToANSI } from "@shikijs/cli";
 import type { BundledLanguage, BundledTheme } from "shiki";
 
+import { CursorStore, fffFormatGrepText } from "./fff-helpers.js";
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -676,25 +678,6 @@ async function renderGrepResults(text: string, pattern: string): Promise<string>
 // If not, falls back to wrapping SDK tools (current behavior).
 // ---------------------------------------------------------------------------
 
-class CursorStore {
-	private cursors = new Map<string, any>();
-	private counter = 0;
-
-	store(cursor: any): string {
-		const id = `fff_c${++this.counter}`;
-		this.cursors.set(id, cursor);
-		if (this.cursors.size > 200) {
-			const first = this.cursors.keys().next().value;
-			if (first) this.cursors.delete(first);
-		}
-		return id;
-	}
-
-	get(id: string): any | undefined {
-		return this.cursors.get(id);
-	}
-}
-
 const _cursorStore = new CursorStore();
 let _fffModule: any = null;
 let _fffFinder: any = null;
@@ -730,47 +713,21 @@ function fffDestroy(): void {
 	_fffPartialIndex = false;
 }
 
-/**
- * Convert FFF GrepResult items to ripgrep-style "file:line:content" text.
- * This ensures pi-pretty's renderGrepResults works unchanged.
- */
-function fffFormatGrepText(items: any[], limit: number): string {
-	const capped = items.slice(0, limit);
-	if (!capped.length) return "No matches found";
-
-	const lines: string[] = [];
-	let currentFile = "";
-
-	for (const match of capped) {
-		if (match.relativePath !== currentFile) {
-			if (currentFile) lines.push("");
-			currentFile = match.relativePath;
-		}
-		if (match.contextBefore?.length) {
-			const startLine = match.lineNumber - match.contextBefore.length;
-			for (let i = 0; i < match.contextBefore.length; i++) {
-				lines.push(`${match.relativePath}-${startLine + i}-${match.contextBefore[i]}`);
-			}
-		}
-		const content =
-			match.lineContent.length > 500 ? `${match.lineContent.slice(0, 500)}...` : match.lineContent;
-		lines.push(`${match.relativePath}:${match.lineNumber}:${content}`);
-		if (match.contextAfter?.length) {
-			const startLine = match.lineNumber + 1;
-			for (let i = 0; i < match.contextAfter.length; i++) {
-				lines.push(`${match.relativePath}-${startLine + i}-${match.contextAfter[i]}`);
-			}
-		}
-	}
-
-	return lines.join("\n");
-}
-
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
 
-export default function piPrettyExtension(pi: any): void {
+/**
+ * Dependencies that can be injected for testing.
+ * In production, omit `deps` — the extension uses require() to load them.
+ */
+export interface PiPrettyDeps {
+	sdk: any;
+	TextComponent: any;
+	fffModule?: any;
+}
+
+export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 	let createReadTool: any;
 	let createBashTool: any;
 	let createLsTool: any;
@@ -780,16 +737,31 @@ export default function piPrettyExtension(pi: any): void {
 
 	let sdk: any;
 
-	try {
-		sdk = require("@mariozechner/pi-coding-agent");
+	if (deps) {
+		// Test path: use injected dependencies, reset module state
+		sdk = deps.sdk;
 		createReadTool = sdk.createReadToolDefinition ?? sdk.createReadTool;
 		createBashTool = sdk.createBashToolDefinition ?? sdk.createBashTool;
 		createLsTool = sdk.createLsToolDefinition ?? sdk.createLsTool;
 		createFindTool = sdk.createFindToolDefinition ?? sdk.createFindTool;
 		createGrepTool = sdk.createGrepToolDefinition ?? sdk.createGrepTool;
-		TextComponent = require("@mariozechner/pi-tui").Text;
-	} catch {
-		return;
+		TextComponent = deps.TextComponent;
+		_fffModule = deps.fffModule ?? null;
+		_fffFinder = null;
+		_fffPartialIndex = false;
+		_fffDbDir = null;
+	} else {
+		try {
+			sdk = require("@mariozechner/pi-coding-agent");
+			createReadTool = sdk.createReadToolDefinition ?? sdk.createReadTool;
+			createBashTool = sdk.createBashToolDefinition ?? sdk.createBashTool;
+			createLsTool = sdk.createLsToolDefinition ?? sdk.createLsTool;
+			createFindTool = sdk.createFindToolDefinition ?? sdk.createFindTool;
+			createGrepTool = sdk.createGrepToolDefinition ?? sdk.createGrepTool;
+			TextComponent = require("@mariozechner/pi-tui").Text;
+		} catch {
+			return;
+		}
 	}
 	if (!createReadTool || !TextComponent) return;
 
@@ -802,16 +774,24 @@ export default function piPrettyExtension(pi: any): void {
 	// ===================================================================
 
 	const getAgentDir = (sdk as any).getAgentDir;
-	try {
-		_fffModule = require("@ff-labs/fff-node");
-		if (getAgentDir) {
-			_fffDbDir = join(getAgentDir(), "fff");
-			try {
-				mkdirSync(_fffDbDir, { recursive: true });
-			} catch {}
+	if (!deps) {
+		// Only try require() in production — tests inject fffModule via deps
+		try {
+			_fffModule = require("@ff-labs/fff-node");
+			if (getAgentDir) {
+				_fffDbDir = join(getAgentDir(), "fff");
+				try {
+					mkdirSync(_fffDbDir, { recursive: true });
+				} catch {}
+			}
+		} catch {
+			/* FFF not installed — SDK tools will be used */
 		}
-	} catch {
-		/* FFF not installed — SDK tools will be used */
+	} else if (_fffModule && getAgentDir) {
+		_fffDbDir = join(getAgentDir(), "fff");
+		try {
+			mkdirSync(_fffDbDir, { recursive: true });
+		} catch {}
 	}
 
 	pi.on("session_start", async (_event: any, ctx: any) => {
