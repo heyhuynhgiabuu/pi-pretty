@@ -41,7 +41,15 @@ pi -e ./src/index.ts
 ## Terminal support for inline images
 
 Inline image previews are supported in **Ghostty**, **Kitty**, **iTerm2**, and **WezTerm**.  
-When running in **tmux**, pi-pretty uses passthrough escape sequences so inline image protocols still work.
+When running in **tmux**, pi-pretty uses passthrough escape sequences.
+
+> tmux must allow passthrough. Enable it with:
+>
+> ```tmux
+> set -g allow-passthrough on
+> ```
+>
+> (or run once in a session: `tmux set -g allow-passthrough on`)
 
 ## Configuration
 
