@@ -71,28 +71,41 @@ const FG_PURPLE = "\x1b[38;2;170;120;200m";
 const BG_STDERR = "\x1b[48;2;40;25;25m";
 
 const BG_DEFAULT = "\x1b[49m";
-let BG_BASE = BG_DEFAULT; // tool box base bg — updated from theme's toolSuccessBg
+let BG_BASE = BG_DEFAULT; // tool box success/base bg — updated from theme's toolSuccessBg
+let BG_ERROR = BG_DEFAULT; // tool box error bg — updated from theme's toolErrorBg
+
+type BgTheme = { getBgAnsi?: (key: string) => string };
+type FgTheme = { fg: (key: string, text: string) => string };
 
 /** Parse an ANSI 24-bit color escape into { r, g, b }. Handles both fg (38;2) and bg (48;2). */
 function parseAnsiRgb(ansi: string): { r: number; g: number; b: number } | null {
-	const m = ansi.match(/\x1b\[(?:38|48);2;(\d+);(\d+);(\d+)m/);
+	const m = ansi.match(new RegExp(`${ESC_RE}\\[(?:38|48);2;(\\d+);(\\d+);(\\d+)m`));
 	return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
 }
 
-/** Read toolSuccessBg from the pi theme and update BG_BASE + RST.
+function getThemeBgAnsi(theme: BgTheme, key: string): string | null {
+	try {
+		const bgAnsi = theme.getBgAnsi?.(key);
+		return bgAnsi && parseAnsiRgb(bgAnsi) ? bgAnsi : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Read themed tool backgrounds and update BG_BASE / BG_ERROR + RST.
  *  Call once when theme is first available. Idempotent. */
 let _bgBaseResolved = false;
-function resolveBaseBackground(theme: any): void {
+function resolveBaseBackground(theme: BgTheme | null | undefined): void {
 	if (_bgBaseResolved || !theme?.getBgAnsi) return;
 	_bgBaseResolved = true;
-	try {
-		const bgAnsi = theme.getBgAnsi("toolSuccessBg");
-		const parsed = parseAnsiRgb(bgAnsi);
-		if (parsed) {
-			BG_BASE = bgAnsi;
-			RST = `\x1b[0m${BG_BASE}`;
-		}
-	} catch { /* ignore — keep defaults */ }
+
+	BG_BASE = getThemeBgAnsi(theme, "toolSuccessBg") ?? BG_DEFAULT;
+	BG_ERROR = getThemeBgAnsi(theme, "toolErrorBg") ?? BG_BASE;
+	RST = `\x1b[0m${BG_BASE}`;
+}
+
+function renderToolError(error: string, theme: FgTheme): string {
+	return fillToolBackground(`\n${theme.fg("error", error)}`, BG_ERROR);
 }
 
 const ESC_RE = "\u001b";
@@ -124,6 +137,25 @@ function normalizeShikiContrast(ansi: string): string {
 
 function strip(s: string): string {
 	return s.replace(ANSI_RE, "");
+}
+
+function preserveToolBackground(ansi: string, bg: string): string {
+	return ansi.replace(ANSI_CAPTURE_RE, (seq, params: string) => {
+		const codes = params.split(";");
+		return params === "0" || codes.includes("49") ? `${seq}${bg}` : seq;
+	});
+}
+
+function fillToolBackground(text: string, bg = BG_BASE): string {
+	const width = termW();
+	return text
+		.split("\n")
+		.map((line) => {
+			const normalized = preserveToolBackground(line, bg);
+			const padding = Math.max(0, width - strip(normalized).length);
+			return `${bg}${normalized}${" ".repeat(padding)}${RST}`;
+		})
+		.join("\n");
 }
 
 function termW(): number {
@@ -978,7 +1010,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 			const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 			const offset = args?.offset ? ` ${theme.fg("muted", `from line ${args.offset}`)}` : "";
 			const limit = args?.limit ? ` ${theme.fg("muted", `(${args.limit} lines)`)}` : "";
-			text.setText(`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", sp(fp))}${offset}${limit}`);
+			text.setText(fillToolBackground(`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", sp(fp))}${offset}${limit}`));
 			return text;
 		},
 
@@ -992,7 +1024,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 						?.filter((c: any) => c.type === "text")
 						.map((c: any) => c.text || "")
 						.join("\n") ?? "Error";
-				text.setText(`\n${theme.fg("error", e)}`);
+				text.setText(renderToolError(e, theme));
 				return text;
 			}
 
@@ -1034,7 +1066,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				}
 
 				out.push(rule(tw));
-				text.setText(out.join("\n"));
+				text.setText(fillToolBackground(out.join("\n")));
 				return text;
 			}
 
@@ -1043,24 +1075,24 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				if (ctx.state._rk !== key) {
 					ctx.state._rk = key;
 					const info = `${FG_DIM}${d.lineCount} lines${RST}`;
-					ctx.state._rt = `  ${info}`;
+					ctx.state._rt = fillToolBackground(`  ${info}`);
 
 					const maxShow = ctx.expanded ? d.lineCount : MAX_PREVIEW_LINES;
 					renderFileContent(d.content, d.filePath, d.offset, maxShow)
 						.then((rendered: string) => {
 							if (ctx.state._rk !== key) return;
-							ctx.state._rt = `  ${info}\n${rendered}`;
+							ctx.state._rt = fillToolBackground(`  ${info}\n${rendered}`);
 							ctx.invalidate();
 						})
 						.catch(() => {});
 				}
-				text.setText(ctx.state._rt ?? `  ${FG_DIM}${d.lineCount} lines${RST}`);
+				text.setText(ctx.state._rt ?? fillToolBackground(`  ${FG_DIM}${d.lineCount} lines${RST}`));
 				return text;
 			}
 
 			// Fallback
 			const fallback = result.content?.[0]?.text ?? "read";
-			text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
+			text.setText(fillToolBackground(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`));
 			return text;
 		},
 	});
@@ -1111,7 +1143,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 				const timeout = args?.timeout ? ` ${theme.fg("muted", `(${args.timeout}s timeout)`)}` : "";
 				text.setText(
-					`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", cmd.length > 80 ? cmd.slice(0, 77) + "…" : cmd)}${timeout}`,
+					fillToolBackground(`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", cmd.length > 80 ? cmd.slice(0, 77) + "…" : cmd)}${timeout}`),
 				);
 				return text;
 			},
@@ -1126,7 +1158,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 							?.filter((c: any) => c.type === "text")
 							.map((c: any) => c.text || "")
 							.join("\n") ?? "Error";
-					text.setText(`\n${theme.fg("error", e)}`);
+					text.setText(renderToolError(e, theme));
 					return text;
 				}
 
@@ -1151,15 +1183,15 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 						if (lineCount > maxShow) {
 							out.push(`${FG_DIM}  … ${lineCount - maxShow} more lines${RST}`);
 						}
-						text.setText(out.join("\n"));
+						text.setText(fillToolBackground(out.join("\n")));
 					} else {
-						text.setText(header);
+						text.setText(fillToolBackground(header));
 					}
 					return text;
 				}
 
 				const fallback = result.content?.[0]?.text ?? "done";
-				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
+				text.setText(fillToolBackground(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`));
 				return text;
 			},
 		});
@@ -1201,7 +1233,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 			resolveBaseBackground(theme);
 				const fp = args?.path ?? ".";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("ls"))} ${theme.fg("accent", sp(fp))}`);
+				text.setText(fillToolBackground(`${theme.fg("toolTitle", theme.bold("ls"))} ${theme.fg("accent", sp(fp))}`));
 				return text;
 			},
 
@@ -1215,7 +1247,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 							?.filter((c: any) => c.type === "text")
 							.map((c: any) => c.text || "")
 							.join("\n") ?? "Error";
-					text.setText(`\n${theme.fg("error", e)}`);
+					text.setText(renderToolError(e, theme));
 					return text;
 				}
 
@@ -1223,12 +1255,12 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				if (d?._type === "lsResult" && d.text) {
 					const tree = renderTree(d.text, d.path);
 					const info = `${FG_DIM}${d.entryCount} entries${RST}`;
-					text.setText(`  ${info}\n${tree}`);
+					text.setText(fillToolBackground(`  ${info}\n${tree}`));
 					return text;
 				}
 
 				const fallback = result.content?.[0]?.text ?? "listed";
-				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
+				text.setText(fillToolBackground(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`));
 				return text;
 			},
 		});
@@ -1307,7 +1339,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				const pattern = args?.pattern ?? "";
 				const path = args?.path ? ` ${theme.fg("muted", `in ${sp(args.path)}`)}` : "";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("find"))} ${theme.fg("accent", pattern)}${path}`);
+				text.setText(fillToolBackground(`${theme.fg("toolTitle", theme.bold("find"))} ${theme.fg("accent", pattern)}${path}`));
 				return text;
 			},
 
@@ -1321,7 +1353,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 							?.filter((c: any) => c.type === "text")
 							.map((c: any) => c.text || "")
 							.join("\n") ?? "Error";
-					text.setText(`\n${theme.fg("error", e)}`);
+					text.setText(renderToolError(e, theme));
 					return text;
 				}
 
@@ -1329,12 +1361,12 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				if (d?._type === "findResult" && d.text) {
 					const rendered = renderFindResults(d.text);
 					const info = `${FG_DIM}${d.matchCount} files${RST}`;
-					text.setText(`  ${info}\n${rendered}`);
+					text.setText(fillToolBackground(`  ${info}\n${rendered}`));
 					return text;
 				}
 
 				const fallback = result.content?.[0]?.text ?? "found";
-				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
+				text.setText(fillToolBackground(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`));
 				return text;
 			},
 		});
@@ -1434,7 +1466,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 				const path = args?.path ? ` ${theme.fg("muted", `in ${sp(args.path)}`)}` : "";
 				const glob = args?.glob ? ` ${theme.fg("muted", `(${args.glob})`)}` : "";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
-				text.setText(`${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", pattern)}${path}${glob}`);
+				text.setText(fillToolBackground(`${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", pattern)}${path}${glob}`));
 				return text;
 			},
 
@@ -1448,7 +1480,7 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 							?.filter((c: any) => c.type === "text")
 							.map((c: any) => c.text || "")
 							.join("\n") ?? "Error";
-					text.setText(`\n${theme.fg("error", e)}`);
+					text.setText(renderToolError(e, theme));
 					return text;
 				}
 
@@ -1458,22 +1490,22 @@ export default function piPrettyExtension(pi: any, deps?: PiPrettyDeps): void {
 					if (ctx.state._gk !== key) {
 						ctx.state._gk = key;
 						const info = `${FG_DIM}${d.matchCount} matches${RST}`;
-						ctx.state._gt = `  ${info}`;
+						ctx.state._gt = fillToolBackground(`  ${info}`);
 
 						renderGrepResults(d.text, d.pattern)
 							.then((rendered: string) => {
 								if (ctx.state._gk !== key) return;
-								ctx.state._gt = `  ${info}\n${rendered}`;
+								ctx.state._gt = fillToolBackground(`  ${info}\n${rendered}`);
 								ctx.invalidate();
 							})
 							.catch(() => {});
 					}
-					text.setText(ctx.state._gt ?? `  ${FG_DIM}${d.matchCount} matches${RST}`);
+					text.setText(ctx.state._gt ?? fillToolBackground(`  ${FG_DIM}${d.matchCount} matches${RST}`));
 					return text;
 				}
 
 				const fallback = result.content?.[0]?.text ?? "searched";
-				text.setText(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`);
+				text.setText(fillToolBackground(`  ${theme.fg("dim", String(fallback).slice(0, 120))}`));
 				return text;
 			},
 		});
