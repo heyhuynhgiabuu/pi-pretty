@@ -6,6 +6,19 @@
 
 import type { GrepCursor, GrepMatch } from "@ff-labs/fff-node";
 
+function sanitizeGrepRecordContent(text: string): string {
+	let content = text;
+	if (content.endsWith("\r\n")) content = content.slice(0, -2);
+	else if (content.endsWith("\r") || content.endsWith("\n")) content = content.slice(0, -1);
+
+	return content.replace(/\r\n/g, "\\n").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+}
+
+function truncateGrepRecordContent(text: string): string {
+	const content = sanitizeGrepRecordContent(text);
+	return content.length > 500 ? `${content.slice(0, 500)}...` : content;
+}
+
 /**
  * Store for FFF grep pagination cursors.
  * Evicts oldest entry when exceeding maxSize.
@@ -57,15 +70,14 @@ export function fffFormatGrepText(items: GrepMatch[], limit: number): string {
 		if (match.contextBefore?.length) {
 			const startLine = match.lineNumber - match.contextBefore.length;
 			for (let i = 0; i < match.contextBefore.length; i++) {
-				lines.push(`${match.relativePath}-${startLine + i}-${match.contextBefore[i]}`);
+				lines.push(`${match.relativePath}-${startLine + i}-${truncateGrepRecordContent(match.contextBefore[i] ?? "")}`);
 			}
 		}
-		const content = match.lineContent.length > 500 ? `${match.lineContent.slice(0, 500)}...` : match.lineContent;
-		lines.push(`${match.relativePath}:${match.lineNumber}:${content}`);
+		lines.push(`${match.relativePath}:${match.lineNumber}:${truncateGrepRecordContent(match.lineContent)}`);
 		if (match.contextAfter?.length) {
 			const startLine = match.lineNumber + 1;
 			for (let i = 0; i < match.contextAfter.length; i++) {
-				lines.push(`${match.relativePath}-${startLine + i}-${match.contextAfter[i]}`);
+				lines.push(`${match.relativePath}-${startLine + i}-${truncateGrepRecordContent(match.contextAfter[i] ?? "")}`);
 			}
 		}
 	}

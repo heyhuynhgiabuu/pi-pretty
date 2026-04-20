@@ -179,6 +179,10 @@ function strip(s: string): string {
 	return s.replace(ANSI_RE, "");
 }
 
+function normalizeLineEndings(text: string): string {
+	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 function preserveToolBackground(ansi: string, bg: string): string {
 	return ansi.replace(ANSI_CAPTURE_RE, (seq, params: string) => {
 		const codes = params.split(";");
@@ -647,7 +651,8 @@ async function renderFileContent(
 	offset = 1,
 	maxLines = MAX_PREVIEW_LINES,
 ): Promise<string> {
-	const lines = content.split("\n");
+	const normalizedContent = normalizeLineEndings(content);
+	const lines = normalizedContent.split("\n");
 	const total = lines.length;
 	const show = lines.slice(0, maxLines);
 	const lg = lang(filePath);
@@ -787,7 +792,7 @@ function renderFindResults(text: string): string {
 
 /** Render grep results with highlighted matches and line numbers. */
 async function renderGrepResults(text: string, pattern: string): Promise<string> {
-	const lines = text.split("\n");
+	const lines = normalizeLineEndings(text).split("\n");
 	if (!lines.length || (lines.length === 1 && !lines[0].trim())) return `${FG_DIM}(no matches)${RST}`;
 
 	const out: string[] = [];
@@ -1164,11 +1169,12 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 
 			const textContent = getTextContent(result);
 			if (textContent && fp) {
-				const lineCount = textContent.split("\n").length;
+				const normalizedContent = normalizeLineEndings(textContent);
+				const lineCount = normalizedContent.split("\n").length;
 				setResultDetails(result, {
 					_type: "readFile",
 					filePath: fp,
-					content: textContent,
+					content: normalizedContent,
 					offset,
 					lineCount,
 				});
@@ -1598,7 +1604,12 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 
 				// SDK fallback
 				const result = await origGrep.execute(tid, params, sig, upd as never, ctx);
-				const textContent = getTextContent(result);
+				const textContent = normalizeLineEndings(getTextContent(result));
+				if (result.content) {
+					for (const content of result.content) {
+						if (isTextContent(content)) content.text = normalizeLineEndings(content.text || "");
+					}
+				}
 				const matchCount = textContent ? countRipgrepMatches(textContent) : 0;
 
 				setResultDetails<GrepResultDetails>(result, {

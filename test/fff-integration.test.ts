@@ -109,6 +109,30 @@ describe("fffFormatGrepText", () => {
 		expect(lines[0]).toBe("a.ts:5:match");
 		expect(lines[1]).toBe("a.ts-6-after1");
 	});
+
+	it("sanitizes CRLF and CR without injecting grep record newlines", () => {
+		const items = [{
+			relativePath: "a.ts",
+			lineNumber: 5,
+			lineContent: "match\r\ncontinued\rtrail",
+			contextBefore: ["before\r\nline"],
+			contextAfter: ["after\rline"],
+		}];
+		const text = fffFormatGrepText(items, 100);
+		const lines = text.split("\n");
+
+		expect(lines).toEqual([
+			"a.ts-4-before\\nline",
+			"a.ts:5:match\\ncontinued\\rtrail",
+			"a.ts-6-after\\rline",
+		]);
+		expect(lines).toHaveLength(3);
+	});
+
+	it("strips trailing CR from CRLF-backed FFF records", () => {
+		const items = [{ relativePath: "a.ts", lineNumber: 5, lineContent: "match\r" }];
+		expect(fffFormatGrepText(items, 100)).toBe("a.ts:5:match");
+	});
 });
 
 // =========================================================================
@@ -285,6 +309,32 @@ describe("piPrettyExtension integration", () => {
 			const r = await tools.get("grep")!.execute("t1", { pattern: "TODO" }, null, null, {});
 			expect(r.details.matchCount).toBe(3);
 		});
+
+		it("normalizes CRLF in SDK text results", async () => {
+			grepExec.mockResolvedValue({
+				content: [{ type: "text", text: "a.ts:1:TODO\r\na.ts:5:TODO\rb.ts:10:TODO" }],
+			});
+			load(false);
+			const r = await tools.get("grep")!.execute("t1", { pattern: "TODO" }, null, null, {});
+			expect(r.content[0].text).toBe("a.ts:1:TODO\na.ts:5:TODO\nb.ts:10:TODO");
+			expect(r.details.text).toBe("a.ts:1:TODO\na.ts:5:TODO\nb.ts:10:TODO");
+			expect(r.details.matchCount).toBe(3);
+		});
+	});
+
+	// ---- read -----------------------------------------------------------
+
+	describe("read", () => {
+		it("normalizes CRLF in read details content", async () => {
+			readExec.mockResolvedValue({
+				content: [{ type: "text", text: "line1\r\nline2\rline3" }],
+			});
+			load(false);
+			const r = await tools.get("read")!.execute("t1", { path: "file.txt" }, null, null, {});
+			expect(r.details._type).toBe("readFile");
+			expect(r.details.content).toBe("line1\nline2\nline3");
+			expect(r.details.lineCount).toBe(3);
+		});
 	});
 
 	// ---- find: FFF path ------------------------------------------------
@@ -354,6 +404,22 @@ describe("piPrettyExtension integration", () => {
 			const r = await tools.get("grep")!.execute("t1", { pattern: "TODO" }, null, null, {});
 			expect(grepExec).not.toHaveBeenCalled();
 			expect(r.content[0].text).toContain("src/index.ts:42:const x = 1;");
+		});
+
+		it("sanitizes CRLF in FFF grep output without extra records", async () => {
+			await loadWithFFF({
+				grep: vi.fn().mockReturnValue({
+					ok: true,
+					value: {
+						items: [{ relativePath: "src/index.ts", lineNumber: 42, lineContent: "const x = 1;\r\nconst y = 2;" }],
+						totalMatched: 1,
+						nextCursor: null,
+					},
+				}),
+			});
+			const r = await tools.get("grep")!.execute("t1", { pattern: "const" }, null, null, {});
+			expect(r.content[0].text).toBe("src/index.ts:42:const x = 1;\\nconst y = 2;");
+			expect(r.details.text.split("\n")).toHaveLength(1);
 		});
 
 		it("literal=true → mode=plain", async () => {
