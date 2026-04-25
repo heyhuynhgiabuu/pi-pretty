@@ -1516,13 +1516,13 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 				upd: unknown,
 				ctx: ExtensionContext,
 			) {
-				// Try FFF first (SIMD-accelerated, frecency-ranked)
-				if (_fffFinder && !_fffFinder.isDestroyed) {
+				// Try FFF first (SIMD-accelerated, frecency-ranked).
+				// FFF 0.5.2 can abort the process when path/glob constraints meet
+				// Unicode filenames, so constrained searches use the SDK fallback.
+				if (_fffFinder && !_fffFinder.isDestroyed && !params.path && !params.glob) {
 					try {
 						const effectiveLimit = Math.max(1, params.limit ?? 100);
-						let query = params.pattern;
-						if (params.glob) query = `${params.glob} ${query}`;
-						else if (params.path) query = `${params.path} ${query}`;
+						const query = params.pattern;
 
 						const grepResult = _fffFinder.grep(query, {
 							mode: params.literal ? "plain" : "regex",

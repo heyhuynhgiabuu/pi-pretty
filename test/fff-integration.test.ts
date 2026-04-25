@@ -370,11 +370,20 @@ describe("piPrettyExtension integration", () => {
 			expect(grep).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ mode: "regex" }));
 		});
 
-		it("glob prepended to query", async () => {
+		it("glob constraints bypass FFF to avoid native Unicode path panic", async () => {
 			const grep = vi.fn().mockReturnValue({ ok: true, value: { items: [], totalMatched: 0, nextCursor: null } });
 			await loadWithFFF({ grep });
 			await tools.get("grep")!.execute("t1", { pattern: "TODO", glob: "*.ts" }, null, null, {});
-			expect(grep).toHaveBeenCalledWith("*.ts TODO", expect.any(Object));
+			expect(grep).not.toHaveBeenCalled();
+			expect(grepExec).toHaveBeenCalledOnce();
+		});
+
+		it("path constraints bypass FFF to avoid native Unicode path panic", async () => {
+			const grep = vi.fn().mockReturnValue({ ok: true, value: { items: [], totalMatched: 0, nextCursor: null } });
+			await loadWithFFF({ grep });
+			await tools.get("grep")!.execute("t1", { pattern: "TODO", path: "file_reviewapp/static/app.js" }, null, null, {});
+			expect(grep).not.toHaveBeenCalled();
+			expect(grepExec).toHaveBeenCalledOnce();
 		});
 
 		it("falls back to SDK on throw", async () => {
