@@ -135,7 +135,7 @@ Use them when:
 
 Optional environment variables:
 
-- `PRETTY_THEME` (default: `github-dark`)
+- `PRETTY_THEME` (overrides `~/.pi/agent/settings.json` `theme`; otherwise pi-pretty falls back to that setting before `github-dark`)
 - `PRETTY_MAX_HL_CHARS` (default: `80000`)
 - `PRETTY_MAX_PREVIEW_LINES` (default: `80`)
 - `PRETTY_CACHE_LIMIT` (default: `128`)

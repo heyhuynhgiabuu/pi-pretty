@@ -24,7 +24,7 @@
  */
 
 import * as childProcess from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative } from "node:path";
 
 import type { FileFinder, FileItem, GrepResult, SearchResult } from "@ff-labs/fff-node";
@@ -50,7 +50,40 @@ import { CursorStore, fffFormatGrepText } from "./fff-helpers.js";
 // Config
 // ---------------------------------------------------------------------------
 
-const THEME: BundledTheme = (process.env.PRETTY_THEME as BundledTheme | undefined) ?? "github-dark";
+const DEFAULT_THEME: BundledTheme = "github-dark";
+
+function getDefaultAgentDir(): string | undefined {
+	const home = process.env.HOME ?? "";
+	return home ? join(home, ".pi/agent") : undefined;
+}
+
+function readThemeFromSettings(agentDir?: string): BundledTheme | undefined {
+	const resolvedAgentDir = agentDir ?? getDefaultAgentDir();
+	if (!resolvedAgentDir) return undefined;
+
+	try {
+		const settings = JSON.parse(readFileSync(join(resolvedAgentDir, "settings.json"), "utf8")) as {
+			theme?: unknown;
+		};
+		return typeof settings.theme === "string" ? (settings.theme as BundledTheme) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function resolvePrettyTheme(agentDir?: string): BundledTheme {
+	return (process.env.PRETTY_THEME as BundledTheme | undefined) ?? readThemeFromSettings(agentDir) ?? DEFAULT_THEME;
+}
+
+let THEME: BundledTheme = resolvePrettyTheme();
+
+function setPrettyTheme(agentDir?: string): void {
+	const resolvedTheme = resolvePrettyTheme(agentDir);
+	if (resolvedTheme === THEME) return;
+	THEME = resolvedTheme;
+	_cache.clear();
+	codeToANSI("", "typescript", THEME).catch(() => {});
+}
 
 function envInt(name: string, fallback: number): number {
 	const v = Number.parseInt(process.env[name] ?? "", 10);
@@ -144,6 +177,10 @@ function normalizeShikiContrast(ansi: string): string {
 
 function strip(s: string): string {
 	return s.replace(ANSI_RE, "");
+}
+
+function normalizeLineEndings(text: string): string {
+	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function preserveToolBackground(ansi: string, bg: string): string {
@@ -614,7 +651,8 @@ async function renderFileContent(
 	offset = 1,
 	maxLines = MAX_PREVIEW_LINES,
 ): Promise<string> {
-	const lines = content.split("\n");
+	const normalizedContent = normalizeLineEndings(content);
+	const lines = normalizedContent.split("\n");
 	const total = lines.length;
 	const show = lines.slice(0, maxLines);
 	const lg = lang(filePath);
@@ -754,7 +792,7 @@ function renderFindResults(text: string): string {
 
 /** Render grep results with highlighted matches and line numbers. */
 async function renderGrepResults(text: string, pattern: string): Promise<string> {
-	const lines = text.split("\n");
+	const lines = normalizeLineEndings(text).split("\n");
 	if (!lines.length || (lines.length === 1 && !lines[0].trim())) return `${FG_DIM}(no matches)${RST}`;
 
 	const out: string[] = [];
@@ -875,6 +913,7 @@ type FindParams = FindToolInput;
 type GrepParams = GrepToolInput;
 type MultiGrepParams = {
 	patterns: string[];
+	path?: string;
 	constraints?: string;
 	context?: number;
 	limit?: number;
@@ -932,6 +971,54 @@ function countRipgrepMatches(text: string): number {
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function resolveScopedPath(cwd: string, pathValue: string): string {
+	return pathValue.startsWith("/") ? pathValue : join(cwd, pathValue);
+}
+
+function isExistingPath(cwd: string, pathValue: string | undefined): boolean {
+	if (!pathValue) return false;
+
+	try {
+		const resolvedPath = resolveScopedPath(cwd, pathValue);
+		return existsSync(resolvedPath);
+	} catch {
+		return false;
+	}
+}
+
+function trimToUndefined(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : undefined;
+}
+
+function escapeRegexLiteral(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildLiteralAlternationPattern(patterns: string[]): string {
+	return patterns
+		.map(escapeRegexLiteral)
+		.sort((a, b) => b.length - a.length)
+		.join("|");
+}
+
+function shouldIgnoreCaseForPatterns(patterns: string[]): boolean {
+	return patterns.every((pattern) => pattern.toLowerCase() === pattern);
+}
+
+function getConstraintBackedPath(constraints: string | undefined): string | undefined {
+	const trimmed = trimToUndefined(constraints);
+	if (!trimmed || /\s/.test(trimmed) || trimmed.includes("!") || /[*?[{]/.test(trimmed)) return undefined;
+	return trimmed;
+}
+
+function getSimpleConstraintGlob(cwd: string, constraints: string | undefined): string | undefined {
+	const trimmed = trimToUndefined(constraints);
+	if (!trimmed || /\s/.test(trimmed) || trimmed.includes("!")) return undefined;
+	if (isExistingPath(cwd, trimmed)) return undefined;
+	return /[*?[{]/.test(trimmed) ? trimmed : undefined;
 }
 
 const _cursorStore = new CursorStore();
@@ -1034,6 +1121,15 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 	// ===================================================================
 
 	const getAgentDir = sdk.getAgentDir;
+	setPrettyTheme(
+		(() => {
+			try {
+				return getAgentDir?.() ?? getDefaultAgentDir();
+			} catch {
+				return getDefaultAgentDir();
+			}
+		})(),
+	);
 	if (!deps) {
 		// Only try require() in production — tests inject fffModule via deps
 		try {
@@ -1124,11 +1220,12 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 
 			const textContent = getTextContent(result);
 			if (textContent && fp) {
-				const lineCount = textContent.split("\n").length;
+				const normalizedContent = normalizeLineEndings(textContent);
+				const lineCount = normalizedContent.split("\n").length;
 				setResultDetails(result, {
 					_type: "readFile",
 					filePath: fp,
-					content: textContent,
+					content: normalizedContent,
 					offset,
 					lineCount,
 				});
@@ -1277,9 +1374,10 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 				const cmd = args.command ?? "";
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 				const timeout = args.timeout ? ` ${theme.fg("muted", `(${args.timeout}s timeout)`)}` : "";
+				const displayCmd = ctx.expanded || cmd.length <= 80 ? cmd : `${cmd.slice(0, 77)}…`;
 				text.setText(
 					fillToolBackground(
-						`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", cmd.length > 80 ? `${cmd.slice(0, 77)}…` : cmd)}${timeout}`,
+						`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", displayCmd)}${timeout}`,
 					),
 				);
 				return text;
@@ -1559,7 +1657,12 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 
 				// SDK fallback
 				const result = await origGrep.execute(tid, params, sig, upd as never, ctx);
-				const textContent = getTextContent(result);
+				const textContent = normalizeLineEndings(getTextContent(result));
+				if (result.content) {
+					for (const content of result.content) {
+						if (isTextContent(content)) content.text = normalizeLineEndings(content.text || "");
+					}
+				}
 				const matchCount = textContent ? countRipgrepMatches(textContent) : 0;
 
 				setResultDetails<GrepResultDetails>(result, {
@@ -1629,25 +1732,30 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 	}
 
 	// ===================================================================
-	// multi_grep — FFF-only OR-logic multi-pattern search
+	// multi_grep — OR-logic multi-pattern search (FFF when available,
+	// SDK grep fallback otherwise)
 	// ===================================================================
 
-	if (_fffModule) {
+	if (_fffModule || createGrepTool) {
+		const multiGrepFallback = createGrepTool ? createGrepTool(cwd) : null;
+
 		pi.registerTool({
 			name: "multi_grep",
-			label: "multi_grep (fff)",
+			label: "multi_grep",
 			description: [
 				"Search file contents for lines matching ANY of multiple patterns (OR logic).",
-				"Uses SIMD-accelerated Aho-Corasick multi-pattern matching. Faster than regex alternation.",
+				"Uses SIMD-accelerated Aho-Corasick multi-pattern matching when FFF is available.",
+				"Falls back to grep-compatible regex alternation when needed (for example fresh on-disk paths).",
 				"Patterns are literal text — never escape special characters.",
-				"Use the constraints parameter for file filtering ('*.rs', 'src/', '!test/').",
+				"Use path to scope a directory/file and constraints for file filtering ('*.rs', 'src/', '!test/').",
 			].join(" "),
-			promptSnippet: "Multi-pattern OR search across file contents (FFF: SIMD-accelerated, frecency-ranked)",
+			promptSnippet: "Multi-pattern OR search across file contents (FFF-accelerated with grep fallback)",
 			promptGuidelines: [
 				"Use multi_grep when you need to find multiple identifiers at once (OR logic).",
 				"Include all naming conventions: snake_case, PascalCase, camelCase variants.",
 				"Patterns are literal text. Never escape special characters.",
-				"Use the constraints parameter for file type/path filtering, not inside patterns.",
+				"Use path to scope a directory or file when you need fresh on-disk results.",
+				"Use the constraints parameter for additional file filtering, not inside patterns.",
 			],
 
 			parameters: {
@@ -1657,6 +1765,10 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 						type: "array",
 						items: { type: "string" },
 						description: "Patterns to search for (OR logic — matches lines containing ANY pattern).",
+					},
+					path: {
+						type: "string",
+						description: "Directory or file path to search (default: current directory)",
 					},
 					constraints: {
 						type: "string",
@@ -1675,11 +1787,11 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 			},
 
 			async execute(
-				_tid: string,
+				tid: string,
 				params: MultiGrepParams,
 				sig: AbortSignal | undefined,
-				_upd: unknown,
-				_ctx: ExtensionContext,
+				upd: unknown,
+				ctx: ExtensionContext,
 			) {
 				if (sig?.aborted) return makeTextResult("Aborted", {});
 
@@ -1687,42 +1799,91 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 					return makeTextResult("Error: patterns array must have at least 1 element", { error: "empty patterns" });
 				}
 
-				if (!_fffFinder || _fffFinder.isDestroyed) {
-					return makeTextResult("FFF not initialized. Wait for session start or run /fff-rescan.", {});
+				const effectiveLimit = Math.max(1, params.limit ?? 100);
+				const pattern = buildLiteralAlternationPattern(params.patterns);
+				const requestedPath = trimToUndefined(params.path);
+				const requestedConstraints = trimToUndefined(params.constraints);
+				const effectivePath = requestedPath ?? getConstraintBackedPath(requestedConstraints);
+				const hasNativeConstraints = Boolean(requestedPath || requestedConstraints);
+
+				if (_fffFinder && !_fffFinder.isDestroyed && !hasNativeConstraints) {
+					try {
+						const grepResult = _fffFinder.multiGrep({
+							patterns: params.patterns,
+							maxMatchesPerFile: Math.min(effectiveLimit, 50),
+							smartCase: true,
+							cursor: null,
+							beforeContext: params.context ?? 0,
+							afterContext: params.context ?? 0,
+						});
+
+						if (!grepResult.ok) {
+							return makeTextResult(`multi_grep error: ${grepResult.error}`, { error: grepResult.error });
+						}
+
+						const grep: GrepResult = grepResult.value;
+						const notices: string[] = [];
+						if (_fffPartialIndex) notices.push("Warning: partial file index");
+						if (grep.items.length >= effectiveLimit) notices.push(`${effectiveLimit} limit reached`);
+						if (grep.nextCursor) {
+							const cursorId = _cursorStore.store(grep.nextCursor);
+							notices.push(`More results: cursor="${cursorId}"`);
+						}
+
+						const textContent = appendNotices(fffFormatGrepText(grep.items, effectiveLimit), notices);
+						return makeTextResult<GrepResultDetails>(textContent, {
+							_type: "grepResult",
+							text: textContent,
+							pattern,
+							matchCount: Math.min(grep.items.length, effectiveLimit),
+						});
+					} catch {
+						/* fall through to SDK */
+					}
+				}
+
+				if (!multiGrepFallback) {
+					if (!_fffFinder || _fffFinder.isDestroyed) {
+						return makeTextResult("FFF not initialized. Wait for session start or run /fff-rescan.", {});
+					}
+					return makeTextResult("multi_grep error: FFF search failed and no grep fallback is available", {
+						error: "missing grep fallback",
+					});
 				}
 
 				try {
-					const effectiveLimit = Math.max(1, params.limit ?? 100);
-
-					const grepResult = _fffFinder.multiGrep({
-						patterns: params.patterns,
-						constraints: params.constraints,
-						maxMatchesPerFile: Math.min(effectiveLimit, 50),
-						smartCase: true,
-						cursor: null,
-						beforeContext: params.context ?? 0,
-						afterContext: params.context ?? 0,
-					});
-
-					if (!grepResult.ok) {
-						return makeTextResult(`multi_grep error: ${grepResult.error}`, { error: grepResult.error });
-					}
-
-					const grep: GrepResult = grepResult.value;
+					const simpleGlob = getSimpleConstraintGlob(cwd, params.constraints);
 					const notices: string[] = [];
-					if (_fffPartialIndex) notices.push("Warning: partial file index");
-					if (grep.items.length >= effectiveLimit) notices.push(`${effectiveLimit} limit reached`);
-					if (grep.nextCursor) {
-						const cursorId = _cursorStore.store(grep.nextCursor);
-						notices.push(`More results: cursor="${cursorId}"`);
+					const trimmedConstraints = trimToUndefined(params.constraints);
+
+					if (!_fffFinder || _fffFinder.isDestroyed) notices.push("FFF unavailable, used SDK grep fallback");
+					else if (hasNativeConstraints) notices.push("Used SDK grep fallback for constrained search");
+					if (trimmedConstraints && !simpleGlob && trimmedConstraints !== effectivePath) {
+						notices.push(`SDK fallback ignored unsupported constraints: ${trimmedConstraints}`);
 					}
 
-					const textContent = appendNotices(fffFormatGrepText(grep.items, effectiveLimit), notices);
-					return makeTextResult<GrepResultDetails>(textContent, {
+					const result = await multiGrepFallback.execute(
+						tid,
+						{
+							pattern,
+							path: effectivePath,
+							glob: simpleGlob,
+							ignoreCase: shouldIgnoreCaseForPatterns(params.patterns),
+							context: params.context,
+							limit: params.limit,
+						},
+						sig,
+						upd as never,
+						ctx,
+					);
+					const textContent = normalizeLineEndings(getTextContent(result)) || "No matches found";
+					const finalText = appendNotices(textContent, notices);
+
+					return makeTextResult<GrepResultDetails>(finalText, {
 						_type: "grepResult",
-						text: textContent,
-						pattern: params.patterns.join(" | "),
-						matchCount: Math.min(grep.items.length, effectiveLimit),
+						text: finalText,
+						pattern,
+						matchCount: textContent ? countRipgrepMatches(textContent) : 0,
 					});
 				} catch (error: unknown) {
 					const message = getErrorMessage(error);
@@ -1733,14 +1894,16 @@ export default function piPrettyExtension(pi: PiPrettyApi, deps?: PiPrettyDeps):
 			renderCall(args: MultiGrepParams, theme: ThemeLike, ctx: RenderContextLike) {
 				resolveBaseBackground(theme);
 				const patterns = args.patterns ?? [];
+				const path = args.path ? ` ${theme.fg("muted", `in ${sp(args.path)}`)}` : "";
 				const constraints = args.constraints;
 				const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
 				let content =
 					theme.fg("toolTitle", theme.bold("multi_grep")) +
 					" " +
 					theme.fg("accent", patterns.map((p) => `"${p}"`).join(", "));
+				content += path;
 				if (constraints) content += theme.fg("muted", ` (${constraints})`);
-				text.setText(content);
+				text.setText(fillToolBackground(content));
 				return text;
 			},
 
