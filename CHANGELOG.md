@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.17] - 2026-07-11
+
+### Changed
+
+- Simplified tool headers: icon-prefixed `find`, `grep`, and `read` labels; cleaner bash result metadata and spacing.
+- Disabled `ls` by default; removed the `multi_grep` custom tool.
+- Added `customToolTitle()` for future pi-pretty custom tools (`⚙ <name>`).
+
+### Fixed
+
+- `find` renders matching paths instead of `(no matches)` when results exist.
+- `read` uses native Pi TUI image rendering, with terminal fallback and success/error backgrounds.
+- Failed `find`, `grep`, and `read` call headers use the error theme color.
+
 ## [0.6.16] - 2026-07-01
 
 ### Changed
