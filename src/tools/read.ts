@@ -1,40 +1,24 @@
 /* pi-pretty: read tool -- file reading with syntax highlighting and inline image support. */
 
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Image as TuiImage } from "@earendil-works/pi-tui";
 import {
-	type ToolDefinition,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
-import type { SdkToolDef, ReadDetails, TextContent, ComponentLike, ThemeLike, RenderCtxLike } from "../types.js";
-import {
-	TOOL_RESULT_INDENT,
-	resolveBaseBackground,
-	termWidth,
-	MAX_PREVIEW_LINES,
 	BG_BASE,
 	BG_ERROR,
 	FG_DIM,
 	FG_LNUM,
 	FG_RULE,
+	MAX_PREVIEW_LINES,
 	RST,
+	resolveBaseBackground,
+	TOOL_RESULT_INDENT,
+	termWidth,
 } from "../config.js";
-import { shortPath, normalizeLineEndings } from "../helpers.js";
-import { wrapExecuteWithMetrics } from "./metrics.js";
-import { renderToolError, renderToolMetrics, fillToolBackground, renderFileContent } from "../render.js";
+import { normalizeLineEndings, shortPath } from "../helpers.js";
+import { fillToolBackground, renderFileContent, renderToolError, renderToolMetrics } from "../render.js";
 import { resolveTextCtor } from "../tui-text.js";
-
-// Simple terminal image support check
-function isImageTerminal(): boolean {
-	const term = (process.env.TERM_PROGRAM ?? process.env.TERM ?? "").toLowerCase();
-	const proto = (process.env.PRETTY_IMAGE_PROTOCOL ?? "").toLowerCase();
-	if (proto === "kitty" || proto === "iterm2") return true;
-	if (proto === "none") return false;
-	return (
-		["ghostty", "kitty", "iterm.app", "wezterm", "mintty"].some((t) => term.includes(t)) ||
-		process.env.LC_TERMINAL === "iTerm2"
-	);
-}
+import type { ReadDetails, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
+import { wrapExecuteWithMetrics } from "./metrics.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
 
@@ -85,7 +69,14 @@ export function registerReadTool(
 			resolveBaseBackground(theme);
 
 			const text = ctx.lastComponent ?? new TC("", 0, 0);
-			text.setText("");
+			if (!ctx.isError) {
+				text.setText("");
+				return text;
+			}
+
+			const path = String(args.path ?? "");
+			const label = theme.fg("error", theme.bold("→ read"));
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${label} ${theme.fg("toolTitle", path)}`, BG_ERROR));
 			return text;
 		},
 
@@ -95,40 +86,25 @@ export function registerReadTool(
 			const text = ctx.lastComponent ?? new TC("", 0, 0);
 
 			if (ctx.isError) {
-				text.setText(renderToolError(getText(result) || "Error", theme));
+				text.setText(fillToolBackground(renderToolError(getText(result) || "Error", theme), BG_ERROR));
 				return text;
 			}
 
 			const d = result.details as ReadDetails | undefined;
 
-			// Image rendering
+			// Image rendering — use pi-tui Image component
 			if (d?._type === "readImage") {
-				if ((ctx as any).showImages && isImageTerminal()) {
-					try {
-						const T = require("@earendil-works/pi-tui").Text as new (
-							t?: string,
-							x?: number,
-							y?: number,
-						) => ComponentLike;
-						const img = new T("", 0, 0);
-						if (d.mimeType.startsWith("image/svg")) {
-							img.setText(d.data);
-						} else {
-							const pngData = (require("@earendil-works/pi-coding-agent") as any).convertToPng?.(d.data) ?? d.data;
-							img.setText(`\x1b_Ga=T,f=100,m=${d.mimeType === "image/png" ? "1" : "0"};${pngData}\x1b\\\\`);
-						}
-						return img;
-					} catch {
-						/* fall through */
-					}
-				}
-				const fc = result.content?.[0];
-				text.setText(
-					fillToolBackground(
-						`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 80) : `[image: ${d.filePath}]`)}`,
-					),
+				const mimeType = d.mimeType.startsWith("image/svg") ? "image/svg+xml" : d.mimeType;
+				return new TuiImage(
+					d.data,
+					mimeType,
+					{
+						fallbackColor: (text) => theme.fg("toolTitle", text),
+					},
+					{
+						filename: d.filePath,
+					},
 				);
-				return text;
 			}
 
 			// File content — line-numbered display
@@ -141,7 +117,8 @@ export function registerReadTool(
 				if (!ctx.expanded) {
 					text.setText(
 						fillToolBackground(
-							`\n${TOOL_RESULT_INDENT}${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", p2)}${theme.fg("dim", off2)}\n${TOOL_RESULT_INDENT}${FG_DIM}${total} lines — ctrl+o to expand${RST}\n`,
+							`\n${TOOL_RESULT_INDENT}${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}\n${TOOL_RESULT_INDENT}${FG_DIM}${total} lines — ctrl+o to expand${RST}\n`,
+							BG_BASE,
 						),
 					);
 					return text;
@@ -152,7 +129,7 @@ export function registerReadTool(
 				const gw = nw + 3;
 				const cw = Math.max(1, tw - gw);
 
-				const header = `${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", p2)}${theme.fg("dim", off2)}`;
+				const header = `${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}`;
 				const out: string[] = ["", `${TOOL_RESULT_INDENT}${header}`];
 				out.push(`${TOOL_RESULT_INDENT}${FG_RULE}${"─".repeat(tw - 1)}${RST}`);
 				for (let i = 0; i < show.length; i++) {
@@ -169,7 +146,7 @@ export function registerReadTool(
 				}
 				out.push("");
 				const rendered = out.join("\n");
-				text.setText(fillToolBackground(rendered));
+				text.setText(fillToolBackground(rendered, BG_BASE));
 				(ctx as any).state._rt = rendered;
 
 				// Async syntax highlighting via Shiki
@@ -180,7 +157,7 @@ export function registerReadTool(
 							.map((l) => `${TOOL_RESULT_INDENT}${l}`)
 							.join("\n");
 						const rendered = `\n${TOOL_RESULT_INDENT}${header}\n${padded}\n`;
-						text.setText(fillToolBackground(rendered));
+						text.setText(fillToolBackground(rendered, BG_BASE));
 						(ctx as any).state._rt = rendered;
 					})
 					.catch(() => {});
@@ -190,7 +167,10 @@ export function registerReadTool(
 
 			const fc = result.content?.[0];
 			text.setText(
-				fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 120) : "done")}`),
+				fillToolBackground(
+					`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 120) : "done")}`,
+					BG_BASE,
+				),
 			);
 			return text;
 		},

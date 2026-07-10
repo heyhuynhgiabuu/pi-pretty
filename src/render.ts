@@ -5,41 +5,40 @@
  * They are async only when Shiki syntax highlighting is involved.
  */
 
-import type { BundledLanguage } from "shiki";
-import { codeToANSI } from "@shikijs/cli";
 import { basename, dirname } from "node:path";
-
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { codeToANSI } from "@shikijs/cli";
+import type { BundledLanguage } from "shiki";
 import {
-	TOOL_RESULT_INDENT,
-	RST,
-	FG_LNUM,
-	FG_DIM,
-	FG_RULE,
-	FG_GREEN,
-	FG_RED,
-	FG_YELLOW,
-	FG_BLUE,
 	BG_BASE,
 	BG_ERROR,
-	dirIcon,
-	detectLang,
-	termWidth,
-	MAX_PREVIEW_LINES,
-	MAX_HL_CHARS,
 	CACHE_LIMIT,
+	detectLang,
+	dirIcon,
+	FG_BLUE,
+	FG_DIM,
+	FG_GREEN,
+	FG_LNUM,
+	FG_RED,
+	FG_RULE,
+	FG_YELLOW,
+	MAX_HL_CHARS,
+	MAX_PREVIEW_LINES,
+	RST,
 	resolveBaseBackground,
+	TOOL_RESULT_INDENT,
+	termWidth,
 } from "./config.js";
 import {
-	normalizeLineEndings,
-	humanSize,
-	formatElapsedMs,
-	formatCharCount,
-	ELAPSED_KEY,
 	CHARS_KEY,
 	compactErrorLines,
+	ELAPSED_KEY,
+	formatCharCount,
+	formatElapsedMs,
+	humanSize,
+	normalizeLineEndings,
 } from "./helpers.js";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { ThemeLike, RenderCtxLike as RenderContext } from "./types.js";
+import type { RenderCtxLike as RenderContext, ThemeLike } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Lazy imports — avoid top-level require() that blocks module loading
@@ -73,7 +72,7 @@ function resolveTheme(): BundledTheme {
 	}
 }
 
-let THEME: BundledTheme = resolveTheme();
+const THEME: BundledTheme = resolveTheme();
 const _cache = new Map<string, string[]>();
 
 function _touch(k: string, v: string[]): string[] {
@@ -174,8 +173,7 @@ export function fillToolBackground(text: string, bg = BG_BASE, width?: number): 
 				return bg ? bg + stripped : stripped;
 			}
 			const plainLead = line.replace(/\x1b\[[0-9;]*m/g, "");
-			const skipPad =
-				line.startsWith(TOOL_RESULT_INDENT) || plainLead.startsWith(TOOL_RESULT_INDENT);
+			const skipPad = line.startsWith(TOOL_RESULT_INDENT) || plainLead.startsWith(TOOL_RESULT_INDENT);
 			const fitted = _truncateToWidth(line, width, "", !skipPad);
 			const stripped = preserveBoxBackground(fitted);
 			return bg ? bg + stripped : stripped;
@@ -203,6 +201,11 @@ export function renderToolMetrics(result: AgentToolResult<Record<string, unknown
 	const chars = formatCharCount(details[CHARS_KEY] as number | undefined);
 	if (!elapsed && !chars) return "";
 	return `${FG_DIM}· ${[elapsed, chars].filter(Boolean).join(" · ")}${RST}`;
+}
+
+export function renderToolDuration(result: AgentToolResult<Record<string, unknown>>): string {
+	const details = result.details as Record<string, unknown> | undefined;
+	return formatElapsedMs(details?.[ELAPSED_KEY] as number | undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,14 +249,7 @@ export async function renderFileContent(
 // Bash — colored exit status
 // ---------------------------------------------------------------------------
 
-export function renderBashOutput(text: string, exitCode: number | null): { summary: string; body: string } {
-	const isOk = exitCode === 0;
-	const statusIcon = isOk ? "✓" : "✗";
-	const codeStr =
-		exitCode !== null
-			? `${isOk ? FG_GREEN : FG_RED}${statusIcon} exit ${exitCode}${RST}`
-			: `${FG_YELLOW}⚡ killed${RST}`;
-
+export function renderBashOutput(text: string): string {
 	const lines = text.split("\n");
 	const maxShow = MAX_PREVIEW_LINES;
 	const show = lines.slice(0, maxShow);
@@ -262,7 +258,7 @@ export function renderBashOutput(text: string, exitCode: number | null): { summa
 	let body = show.join("\n");
 	if (remaining > 0) body += `\n${TOOL_RESULT_INDENT}${FG_DIM}… ${remaining} more lines${RST}`;
 
-	return { summary: codeStr, body };
+	return body;
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +410,13 @@ export function makeRenderResult() {
 			const preview = lines.slice(0, maxShow).join("\n");
 			const more = lines.length > maxShow ? `\n${FG_DIM}... ${lines.length - maxShow} more lines${RST}` : "";
 			const metrics = renderToolMetrics(result);
-			text.setText(fillToolBackground(`${TOOL_RESULT_INDENT}${preview}${more}${metrics ? `\n${TOOL_RESULT_INDENT}${metrics}` : ""}`, undefined, renderWidth));
+			text.setText(
+				fillToolBackground(
+					`${TOOL_RESULT_INDENT}${preview}${more}${metrics ? `\n${TOOL_RESULT_INDENT}${metrics}` : ""}`,
+					undefined,
+					renderWidth,
+				),
+			);
 		} else {
 			text.setText(fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", "(no text output)")}`));
 		}

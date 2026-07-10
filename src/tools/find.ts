@@ -1,20 +1,15 @@
 /* pi-pretty: find tool -- FFF-backed file search with SDK (fd) fallback. */
 
 import { isAbsolute, relative } from "node:path";
-import {
-	type ToolDefinition,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
-import type { SdkToolDef, FindDetails, FffServiceWithCursor, TextContent, ThemeLike, RenderCtxLike } from "../types.js";
-import { TOOL_RESULT_INDENT, BG_ERROR, FG_DIM, RST, resolveBaseBackground } from "../config.js";
-import { shortPath } from "../helpers.js";
-import { wrapExecuteWithMetrics } from "./metrics.js";
-import { renderFindResults, renderToolError, renderToolMetrics, fillToolBackground } from "../render.js";
-import { resolveTextCtor } from "../tui-text.js";
-import { NOTICE_PARTIAL_FILE_INDEX } from "../notices.js";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { BG_ERROR, FG_DIM, RST, resolveBaseBackground, TOOL_RESULT_INDENT } from "../config.js";
 import { isLikelyGlobPattern, normalizeFindGlobPattern } from "../find-glob.js";
+import { shortPath } from "../helpers.js";
+import { NOTICE_PARTIAL_FILE_INDEX } from "../notices.js";
+import { fillToolBackground, renderFindResults, renderToolDuration, renderToolError } from "../render.js";
+import { resolveTextCtor } from "../tui-text.js";
+import type { FffServiceWithCursor, FindDetails, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
+import { wrapExecuteWithMetrics } from "./metrics.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
 
@@ -105,7 +100,9 @@ export function registerFindTool(
 					const basePathResult = fff.getBasePath();
 					const basePath = basePathResult.ok ? basePathResult.value : null;
 					const globPattern = buildGlobPattern(pattern, path, basePath);
-					const searchResult = fff.glob(globPattern, { pageSize: effectiveLimit });
+					const searchResult = fff.glob(globPattern, {
+						pageSize: effectiveLimit,
+					});
 
 					if (searchResult.ok) {
 						const items = searchResult.value.items.slice(0, effectiveLimit);
@@ -153,22 +150,15 @@ export function registerFindTool(
 			const a = args as { pattern?: unknown; path?: unknown; limit?: unknown };
 			const text = (ctx as RenderCtxLike).lastComponent ?? new TC("", 0, 0);
 			const pattern = a.pattern == null ? "" : String(a.pattern);
-			const pathArg =
-				a.path == null ? "<missing>" : shortPath(cwd, home, String(a.path));
+			const pathArg = a.path == null ? "<missing>" : shortPath(cwd, home, String(a.path));
 			const limit = a.limit;
-			const findLabel = theme.fg("toolTitle", theme.bold("find"));
-			const patternPart = pattern ? theme.fg("accent", pattern) : "";
+			const findLabel = theme.fg(ctx.isError ? "error" : "toolTitle", theme.bold("✱ find"));
+			const patternPart = pattern ? theme.fg("toolTitle", pattern) : "";
 			const inPart = theme.fg("dim", " in ");
 			const pathPart = theme.fg("toolOutput", pathArg);
-			const limitPart =
-				limit !== undefined && limit !== null ? theme.fg("dim", ` limit ${limit}`) : "";
+			const limitPart = limit !== undefined && limit !== null ? theme.fg("dim", ` limit ${limit}`) : "";
 			const out = `${findLabel} ${patternPart}${inPart}${pathPart}${limitPart}`;
-			text.setText(
-				fillToolBackground(
-					`\n${TOOL_RESULT_INDENT}${out}`,
-					ctx.isError ? BG_ERROR : undefined,
-				),
-			);
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}`, ctx.isError ? BG_ERROR : undefined));
 			return text;
 		},
 
@@ -186,17 +176,14 @@ export function registerFindTool(
 					const noticeStr = d.notices?.length
 						? `\n${TOOL_RESULT_INDENT}${theme.fg("warning", `[${d.notices.join(". ")}]`)}`
 						: "";
-					text.setText(
-						fillToolBackground(
-							`\n${TOOL_RESULT_INDENT}${theme.fg("dim", "0 files")}${noticeStr}\n`,
-						),
-					);
+					text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${theme.fg("dim", "0 files")}${noticeStr}\n`));
 					return text;
 				}
 				if (!ctx.expanded) {
+					const duration = renderToolDuration(r);
 					text.setText(
 						fillToolBackground(
-							`${TOOL_RESULT_INDENT}${FG_DIM}${d.matchCount} files — ctrl+o to expand${RST}${renderToolMetrics(r)}\n`,
+							`${TOOL_RESULT_INDENT}${FG_DIM}${d.matchCount} files — ctrl+o to expand${RST}${duration ? `${FG_DIM}· ${duration}${RST}` : ""}\n`,
 						),
 					);
 					return text;
@@ -208,18 +195,17 @@ export function registerFindTool(
 				const noticeStr = d.notices?.length
 					? `\n${TOOL_RESULT_INDENT}${theme.fg("warning", `[${d.notices.join(". ")}]`)}`
 					: "";
+				const duration = renderToolDuration(r);
 				text.setText(
 					fillToolBackground(
-						`\n${TOOL_RESULT_INDENT}${theme.fg("dim", `${d.matchCount} files`)}${renderToolMetrics(r)}\n${rendered}${noticeStr}\n`,
+						`\n${TOOL_RESULT_INDENT}${theme.fg("dim", `${d.matchCount} files`)}${duration ? `${FG_DIM}· ${duration}${RST}` : ""}\n${rendered}${noticeStr}\n`,
 					),
 				);
 				return text;
 			}
 			const fc = r.content?.[0] as TextContent | undefined;
 			text.setText(
-				fillToolBackground(
-					`\n${TOOL_RESULT_INDENT}${theme.fg("dim", fc?.text?.slice(0, 120) ?? "0 files")}\n`,
-				),
+				fillToolBackground(`\n${TOOL_RESULT_INDENT}${theme.fg("dim", fc?.text?.slice(0, 120) ?? "0 files")}\n`),
 			);
 			return text;
 		},

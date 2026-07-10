@@ -1,7 +1,7 @@
 /**
  * pi-pretty — Pretty terminal output for pi built-in tools.
  *
- * Enhances read, bash, ls, find, grep, multi_grep with:
+ * Enhances read, bash, ls, find, and grep with:
  *   • Syntax-highlighted file content (Shiki)
  *   • Colored bash exit status + output
  *   • Tree-view directory listings with file-type icons
@@ -12,30 +12,28 @@
 // Re-export for tests
 export { __imageInternals } from "./image.js";
 
-import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-
-import type { PiPrettyDeps } from "./types.js";
-import { getSharedFffService, type FffService } from "./fff.js";
-import { registerReadTool } from "./tools/read.js";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createFffAutocompleteProvider } from "./autocomplete.js";
+import { getDefaultAgentDir } from "./config.js";
+import { type FffService, getSharedFffService } from "./fff.js";
 import { registerBashTool } from "./tools/bash.js";
-import { registerLsTool } from "./tools/ls.js";
 import { registerFindTool } from "./tools/find.js";
 import { registerGrepTool } from "./tools/grep.js";
-import { registerMultiGrepTool } from "./tools/multi-grep.js";
-import { runMultiGrepRipgrepFallback } from "./multi-grep-fallback.js";
-import { getDefaultAgentDir } from "./config.js";
-import { createFffAutocompleteProvider } from "./autocomplete.js";
-import { registerDefaultCollapsedToolOutput } from "./expand.js";
+import { registerLsTool } from "./tools/ls.js";
+import { registerReadTool } from "./tools/read.js";
+import type { PiPrettyDeps } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-function envDisabledTools(): Set<string> {
+const DEFAULT_DISABLED_TOOLS = new Set(["ls"]);
+
+function envTools(name: "PRETTY_DISABLE_TOOLS" | "PRETTY_ENABLE_TOOLS"): Set<string> {
 	return new Set(
-		(process.env.PRETTY_DISABLE_TOOLS ?? "")
+		(process.env[name] ?? "")
 			.split(",")
-			.map((s) => s.trim().toLowerCase())
+			.map((tool) => tool.trim().toLowerCase())
 			.filter(Boolean),
 	);
 }
@@ -47,9 +45,15 @@ function envDisabledTools(): Set<string> {
 export type { PiPrettyDeps };
 
 export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrettyDeps): Promise<void> {
-	const disabledTools = envDisabledTools();
-	const isToolEnabled = (name: string) => !disabledTools.has(name.toLowerCase());
-	registerDefaultCollapsedToolOutput(pi);
+	const disabledTools = envTools("PRETTY_DISABLE_TOOLS");
+	const enabledTools = envTools("PRETTY_ENABLE_TOOLS");
+	const isToolEnabled = (name: string) => {
+		const normalizedName = name.toLowerCase();
+		return (
+			!disabledTools.has(normalizedName) &&
+			(!DEFAULT_DISABLED_TOOLS.has(normalizedName) || enabledTools.has(normalizedName))
+		);
+	};
 	const cwd = process.cwd();
 
 	// ------------------------------------------------------------------
@@ -62,10 +66,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 
 	const maybeGetAgentDir = deps?.sdk?.getAgentDir;
 	const agentDir = typeof maybeGetAgentDir === "function" ? maybeGetAgentDir() : getDefaultAgentDir();
-	let fffService: FffService | null = getSharedFffService(deps?.fffModule, agentDir);
-
-	// Ripgrep fallback for multi_grep
-	const multiGrepFallback = deps?.multiGrepRipgrepFallback ?? runMultiGrepRipgrepFallback;
+	const fffService: FffService | null = getSharedFffService(deps?.fffModule, agentDir);
 
 	// Text component for custom rendering (DI-friendly)
 	const TextComp = deps?.TextComponent;
@@ -78,8 +79,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		pi.registerCommand("fff-health", {
 			description: "Show FFF file finder health and indexer status",
 			handler: async (_args: string, ctx: ExtensionCommandContext) => {
-				const fff = fffService!;
-				if (!fff.isAvailable) {
+				const fff = fffService;
+				if (!fff || !fff.isAvailable) {
 					ctx.ui.notify("FFF not initialized", "warning");
 					return;
 				}
@@ -228,16 +229,6 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	}
 	if (isToolEnabled("grep") && createGrepTool) {
 		registerGrepTool(pi, cwd, fffService, createGrepTool(cwd), TextComp);
-	}
-	if (isToolEnabled("multi_grep") && (fffService || createGrepTool)) {
-		registerMultiGrepTool(
-			pi,
-			cwd,
-			fffService,
-			createGrepTool ? createGrepTool(cwd) : undefined,
-			multiGrepFallback,
-			TextComp,
-		);
 	}
 
 	// Fallback padding for SDK-rendered tool bodies. The SDK reads

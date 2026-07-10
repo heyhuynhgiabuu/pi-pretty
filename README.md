@@ -100,20 +100,7 @@ read path="src/index.ts"
 ls path="src"
 ```
 
-### 4. Use `multi_grep` when you want OR-search across multiple strings
-
-`multi_grep` is bundled on top of FFF and is useful when you want any of several patterns:
-
-```text
-multi_grep patterns=["handleRequest","handle_request","HandleRequest"] constraints="*.ts"
-```
-
-Good uses:
-- find several naming variants at once
-- search related symbols in one pass
-- replace slow regex alternation with literal OR matching
-
-### 5. Check FFF status or force a rescan
+### 4. Check FFF status or force a rescan
 
 pi-pretty also provides two maintenance commands:
 
@@ -130,7 +117,7 @@ Use them when:
 ### Notes
 
 - `find` results are frecency-aware, so files you touch more often can bubble up earlier.
-- `grep` and `multi_grep` can show a cursor notice when more results are available.
+- `grep` can show a cursor notice when more results are available.
 - If you see a partial index warning, let the session settle or run `/fff-rescan`.
 
 ## Configuration
@@ -163,9 +150,12 @@ Optional environment variables:
 - `PRETTY_MAX_PREVIEW_LINES` (default: `80`)
 - `PRETTY_CACHE_LIMIT` (default: `128`)
 - `PRETTY_ICONS` (`nerd` by default, set to `none` to disable icons)
-- `PRETTY_DISABLE_TOOLS` — comma-separated list of tool names to skip during registration (e.g. `read,grep`). Useful when another extension already owns one of these tool names. All tools (read, bash, ls, find, grep, multi_grep) are registered by default.
+- `PRETTY_DISABLE_TOOLS` — comma-separated list of tool names to skip during registration (e.g. `read,grep`). Explicit disables take precedence over enabled defaults.
+- `PRETTY_ENABLE_TOOLS` — comma-separated list of opt-in tools. `ls` is disabled by default; set `PRETTY_ENABLE_TOOLS=ls` to register it.
 
 ## Development
+
+Future pi-pretty custom-tool renderers should use `customToolTitle(name)` from `src/tools/labels.ts`; it returns `⚙ <name>`. Built-in tool replacements keep their own labels.
 
 ```bash
 npm install

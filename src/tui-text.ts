@@ -13,10 +13,6 @@ type TextCtor = new (t?: string, x?: number, y?: number) => { setText(v: string)
 
 /** No-op stub that satisfies the Text interface so rendering doesn't crash. */
 class StubText {
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	constructor(_t?: string, _x?: number, _y?: number) {
-		// no-op
-	}
 	setText(_v: string): void {
 		// no-op — pi-tui not available
 	}
@@ -26,7 +22,7 @@ let _ctor: TextCtor | null = null;
 let _resolved = false;
 
 function resolve(): TextCtor {
-	if (_resolved) return _ctor!;
+	if (_ctor) return _ctor;
 	_resolved = true;
 	try {
 		// eslint-disable-next-line @typescript-eslint/no-var-requires

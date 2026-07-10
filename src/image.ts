@@ -96,7 +96,7 @@ function tmuxAllowsPassthrough(): boolean | null {
 function getTmuxPassthroughWarning(protocol: ImageProtocol): string | null {
 	if (!isTmuxSession() || protocol === "none") return null;
 	if (tmuxAllowsPassthrough() === false) {
-		return 'tmux allow-passthrough is off. Run: tmux set -g allow-passthrough on';
+		return "tmux allow-passthrough is off. Run: tmux set -g allow-passthrough on";
 	}
 	return null;
 }

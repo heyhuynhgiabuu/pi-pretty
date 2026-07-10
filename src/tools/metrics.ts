@@ -5,7 +5,7 @@
  */
 
 import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { ELAPSED_KEY, CHARS_KEY } from "../helpers.js";
+import { CHARS_KEY, ELAPSED_KEY } from "../helpers.js";
 
 type ExecuteFn = (
 	tid: string,

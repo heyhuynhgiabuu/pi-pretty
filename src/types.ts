@@ -2,21 +2,21 @@
  * pi-pretty shared types.
  */
 
-import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Re-export FFF types needed by tools
 // ---------------------------------------------------------------------------
 
-export type { FileFinder, FileItem, GrepResult, SearchResult, GrepMatch, GrepCursor } from "@ff-labs/fff-node";
+export type { FileFinder, FileItem, GrepCursor, GrepMatch, GrepResult, SearchResult } from "@ff-labs/fff-node";
 
 // ---------------------------------------------------------------------------
 // Content / Result types
 // ---------------------------------------------------------------------------
 
 export type ToolContent = TextContent | ImageContent;
-export type { TextContent, ImageContent };
+export type { ImageContent, TextContent };
 // ---------------------------------------------------------------------------
 // Theme / rendering context types
 // ---------------------------------------------------------------------------
@@ -120,14 +120,6 @@ export interface GrepInput {
 	ignoreCase?: boolean;
 }
 
-export interface MultiGrepInput {
-	patterns: string[];
-	path?: string;
-	constraints?: string;
-	context?: number;
-	limit?: number;
-}
-
 // ---------------------------------------------------------------------------
 // SDK tool definition shape (DI-friendly — accepts both mock and real SDK)
 // ---------------------------------------------------------------------------
@@ -152,29 +144,6 @@ export interface SdkTools {
 	createGrepTool?: (cwd: string) => SdkToolDef;
 	getAgentDir?: () => string;
 }
-
-// ---------------------------------------------------------------------------
-// Multi-grep fallback types
-// ---------------------------------------------------------------------------
-
-export interface MultiGrepFallbackParams {
-	cwd: string;
-	patterns: string[];
-	path?: string;
-	constraints?: string;
-	context?: number;
-	limit: number;
-	ignoreCase: boolean;
-	signal?: AbortSignal;
-}
-
-export interface MultiGrepFallbackResult {
-	text: string;
-	matchCount: number;
-	limitReached: boolean;
-}
-
-export type MultiGrepFallback = (params: MultiGrepFallbackParams) => Promise<MultiGrepFallbackResult>;
 
 // ---------------------------------------------------------------------------
 // FFF service interfaces
@@ -224,5 +193,4 @@ export interface PiPrettyDeps {
 	sdk?: SdkTools;
 	TextComponent?: new (text?: string, x?: number, y?: number) => ComponentLike;
 	fffModule?: typeof import("@ff-labs/fff-node");
-	multiGrepRipgrepFallback?: MultiGrepFallback;
 }

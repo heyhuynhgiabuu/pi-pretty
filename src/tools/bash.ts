@@ -1,28 +1,12 @@
 /* pi-pretty: bash tool -- command execution with styled output. */
 
-import {
-	type ToolDefinition,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
-import type { SdkToolDef, BashDetails, TextContent, ComponentLike, ThemeLike, RenderCtxLike } from "../types.js";
-import {
-	TOOL_RESULT_INDENT,
-	resolveBaseBackground,
-	termWidth,
-	MAX_PREVIEW_LINES,
-	BG_BASE,
-	BG_ERROR,
-	FG_DIM,
-	FG_RULE,
-	RST,
-} from "../config.js";
-import { wrapExecuteWithMetrics } from "./metrics.js";
-import { collapsedExpandFooter } from "../collapsed-hint.js";
-import { renderBashOutput, renderToolError, renderToolMetrics, fillToolBackground } from "../render.js";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { BG_BASE, FG_DIM, MAX_PREVIEW_LINES, resolveBaseBackground, TOOL_RESULT_INDENT, termWidth } from "../config.js";
+import { compactErrorLines, inferBashExitCode, stripBashExitStatusLine } from "../helpers.js";
+import { fillToolBackground, renderToolDuration, renderToolError } from "../render.js";
 import { resolveTextCtor } from "../tui-text.js";
-import { stripBashExitStatusLine, inferBashExitCode, compactErrorLines } from "../helpers.js";
+import type { BashDetails, ComponentLike, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
+import { wrapExecuteWithMetrics } from "./metrics.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
 
@@ -40,8 +24,8 @@ export function registerBashTool(
 		label: "Bash",
 		description: sdkTool.description
 			? `${sdkTool.description} For text search: \`rg -n\`.`
-			: "Execute shell commands. For text search: \`rg -n\`.",
-		promptSnippet: "Execute commands via bash. For text search: \`rg -n\`.",
+			: "Execute shell commands. For text search: `rg -n`.",
+		promptSnippet: "Execute commands via bash. For text search: `rg -n`.",
 		promptGuidelines: [
 			"For text search: `rg -n`. If no results, try `rg -u` (respects .gitignore by default).",
 			"In rg: | means alternation, \\| means literal pipe. Opposite of GNU grep. Never use \\| for alternation.",
@@ -78,14 +62,11 @@ export function registerBashTool(
 				rawCmd.length === 0
 					? theme.fg("toolOutput", "...")
 					: !ctx.expanded && rawCmd.length > headerBudget
-						? rawCmd.slice(0, Math.max(1, headerBudget)) + "…"
+						? `${rawCmd.slice(0, Math.max(1, headerBudget))}…`
 						: rawCmd;
+			const commandLabel = theme.fg(ctx.isError ? "error" : "toolTitle", theme.bold(`$ ${cmd}`));
 			text.setText(
-				fillToolBackground(
-					`\n${TOOL_RESULT_INDENT}${theme.fg("toolTitle", theme.bold(`$ ${cmd}`))}${t}`,
-					ctx.isError ? BG_ERROR : undefined,
-					ctx.expanded ? undefined : tw,
-				),
+				fillToolBackground(`\n${TOOL_RESULT_INDENT}${commandLabel}${t}`, undefined, ctx.expanded ? undefined : tw),
 			);
 			return text;
 		},
@@ -111,26 +92,22 @@ export function registerBashTool(
 
 			if (d?._type === "bashResult") {
 				const isErr = ctx.isError || (d.exitCode !== null && d.exitCode !== 0);
-				const bg = isErr ? BG_ERROR : undefined;
 				const cleaned = stripBashExitStatusLine(d.text);
 				const output = isErr ? compactErrorLines(cleaned).join("\n") : cleaned;
-				const { summary } = renderBashOutput(output, d.exitCode);
 				const lineCount = output.split("\n").length;
-				const info =
-					lineCount > 1
-						? `${TOOL_RESULT_INDENT}${FG_DIM}(${lineCount} lines)${RST} ${renderToolMetrics(result)}`
-						: ` ${renderToolMetrics(result)}`;
-				const header = `${TOOL_RESULT_INDENT}${summary}${info}`;
+				const info = [`${lineCount} lines`, renderToolDuration(result), !ctx.expanded ? "ctrl+o to expand" : ""]
+					.filter(Boolean)
+					.map((part) => theme.fg("dim", part))
+					.join(theme.fg("dim", " · "));
+				const header = `${TOOL_RESULT_INDENT}${info}`;
 				const rw = termWidth();
 
 				const renderFn = (w: number) => {
-					if (!ctx.expanded) {
-						return fillToolBackground([header, collapsedExpandFooter()].join("\n"), bg, w);
-					}
-					if (!output.trim()) return fillToolBackground(header, bg, w);
+					if (!ctx.expanded) return fillToolBackground(`${header}\n`, undefined, w);
+					if (!output.trim()) return fillToolBackground(`${header}\n`, undefined, w);
 					const show = output.split("\n");
-					const out = [header, rule(w), ...show.map((l: string) => `${TOOL_RESULT_INDENT}${l}`)];
-					return fillToolBackground(out.join("\n"), bg, w);
+					const out = [header, "", ...show.map((line: string) => `${TOOL_RESULT_INDENT}${line}`)];
+					return fillToolBackground(`${out.join("\n")}\n`, undefined, w);
 				};
 
 				text.setText(renderFn(rw));
@@ -140,7 +117,7 @@ export function registerBashTool(
 					let key: string | undefined;
 					(text as unknown as Record<string, unknown>).render = (w: number) => {
 						const width = Math.max(1, Math.floor(w || termWidth()));
-						const k = `bash:${ctx.expanded ? "1" : "0"}:${width}:${d.exitCode ?? "killed"}:${output.length}:${renderToolMetrics(result)}`;
+						const k = `bash:${ctx.expanded ? "1" : "0"}:${width}:${d.exitCode ?? "killed"}:${output.length}:${renderToolDuration(result)}`;
 						if (key !== k) {
 							text.setText(renderFn(width));
 							key = k;
@@ -157,16 +134,15 @@ export function registerBashTool(
 			}
 			const fc = result.content?.[0];
 			text.setText(
-				fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 120) : "done")}`),
+				fillToolBackground(
+					`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 120) : "done")}`,
+				),
 			);
 			return text;
 		},
 	} as unknown as ToolDefinition<any, any, any>);
 }
 
-function rule(w: number): string {
-	return `${FG_RULE}${"\u2500".repeat(w)}${RST}`;
-}
 function getText(result: Result): string {
 	return (
 		((result.content ?? []) as TextContent[])

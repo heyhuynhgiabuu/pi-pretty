@@ -179,7 +179,7 @@ describe("bash renderCall expansion", () => {
 	it("does not add extra internal padding to the bash title in error state", () => {
 		withStdoutColumns(48, () => {
 			const bashTool = loadBashTool();
-			const rendered = bashTool.renderCall({ command: "false" }, mockTheme, {
+			const rendered = bashTool.renderCall({ command: "false" }, ansiMockTheme, {
 				lastComponent: new MockText(),
 				isError: true,
 				state: {},
@@ -189,6 +189,7 @@ describe("bash renderCall expansion", () => {
 
 			const lines = stripAnsi(rendered.getText()).split("\n");
 			expect(lines[1]).toMatch(/^ \$ false/);
+			expect(rendered.getText()).toContain("\x1b[31m");
 		});
 	});
 
@@ -208,8 +209,9 @@ describe("bash renderCall expansion", () => {
 				},
 			);
 			const collapsedLines = stripAnsi(collapsed.getText()).split("\n");
-			expect(collapsedLines[0]).toContain("✗ exit 1");
-			expect(collapsedLines.some((l) => l.includes("ctrl+o"))).toBe(true);
+			expect(collapsedLines[0]).toContain("3 lines · ctrl+o to expand");
+			expect(collapsedLines[0]).not.toContain("exit");
+			expect(collapsedLines[1].trim()).toBe("");
 			expect(collapsedLines.some((l) => l.includes("first error"))).toBe(false);
 
 			const expanded = bashTool.renderResult(
@@ -225,9 +227,10 @@ describe("bash renderCall expansion", () => {
 				},
 			);
 			const lines = stripAnsi(expanded.getText()).split("\n");
-			expect(lines[1]).toMatch(/^─+$/);
+			expect(lines[1].trim()).toBe("");
 			expect(lines[2]).toMatch(/^ first error/);
 			expect(lines[4]).toMatch(/^ second error/);
+			expect(lines.at(-1)?.trim()).toBe("");
 		});
 	});
 
@@ -277,7 +280,7 @@ describe("bash renderCall expansion", () => {
 
 			rendered.render(80);
 			const lines = stripAnsi(rendered.getText()).split("\n");
-			expect(lines.some((line) => /^─{80}$/.test(line))).toBe(true);
+			expect(lines[1].trim()).toBe("");
 			for (const line of rendered.getText().split("\n")) {
 				expect(visibleWidth(line)).toBeLessThanOrEqual(80);
 			}

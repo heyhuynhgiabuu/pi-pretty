@@ -23,6 +23,7 @@ const ENV_KEYS = [
 	"COLORTERM",
 	"PRETTY_IMAGE_PROTOCOL",
 ] as const;
+const agentDir = "/tmp/pi-pretty-image-test";
 
 class MockText {
 	private text = "";
@@ -60,7 +61,7 @@ function loadReadTool(readExec: any) {
 			createLsToolDefinition: mockToolFactory(noopExec),
 			createFindToolDefinition: mockToolFactory(noopExec),
 			createGrepToolDefinition: mockToolFactory(noopExec),
-			getAgentDir: () => "/tmp/pi-pretty-test",
+			getAgentDir: () => agentDir,
 		},
 		TextComponent: MockText,
 	});
@@ -70,7 +71,6 @@ function loadReadTool(readExec: any) {
 
 describe("image rendering terminal detection", () => {
 	const envSnapshot = new Map<string, string | undefined>();
-	const agentDir = "/tmp/pi-pretty-test";
 
 	beforeEach(() => {
 		rmSync(agentDir, { recursive: true, force: true });
@@ -133,7 +133,28 @@ describe("image rendering terminal detection", () => {
 		expect(__imageInternals.getTmuxPassthroughWarning("kitty")).toBeNull();
 	});
 
-	it("renders image metadata without a second inline preview", async () => {
+	it("renders images through pi-tui Image component instead of raw escape text", async () => {
+		process.env.TERM_PROGRAM = "kitty";
+
+		const readTool = loadReadTool(async () => ({
+			content: [{ type: "image", data: Buffer.from("fake").toString("base64"), mimeType: "image/png" }],
+		}));
+
+		const result = await readTool.execute("t1", { path: "media/inline-image.png" }, null, null, {});
+		const rendered = readTool.renderResult(result, {}, mockTheme, {
+			lastComponent: new MockText(),
+			isError: false,
+			state: {},
+			expanded: false,
+			invalidate: () => {},
+			showImages: true,
+		});
+
+		const { Image } = await import("@earendil-works/pi-tui");
+		expect(rendered).toBeInstanceOf(Image);
+	});
+
+	it("returns Pi TUI's image component for image results", async () => {
 		process.env.TERM_PROGRAM = "kitty";
 
 		const readTool = loadReadTool(async () => ({
@@ -149,10 +170,27 @@ describe("image rendering terminal detection", () => {
 			invalidate: () => {},
 		});
 
-		expect(rendered.getText()).toContain("inline-image.png");
-		expect(rendered.getText()).not.toContain("\x1b_G");
+		const { Image } = await import("@earendil-works/pi-tui");
+		expect(rendered).toBeInstanceOf(Image);
 		expect(result.content).toEqual([
 			{ type: "image", data: Buffer.from("fake").toString("base64"), mimeType: "image/png" },
 		]);
+	});
+
+	it("prefixes a text read label with an arrow", async () => {
+		const readTool = loadReadTool(async () => ({
+			content: [{ type: "text", text: "example" }],
+		}));
+
+		const result = await readTool.execute("t1", { path: "src/example.ts" }, null, null, {});
+		const rendered = readTool.renderResult(result, {}, mockTheme, {
+			lastComponent: new MockText(),
+			isError: false,
+			state: {},
+			expanded: false,
+			invalidate: () => {},
+		});
+
+		expect(rendered.getText()).toContain("→ read");
 	});
 });

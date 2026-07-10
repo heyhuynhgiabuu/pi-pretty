@@ -13,7 +13,6 @@ import { basename, extname, join } from "node:path";
 export const TOOL_RESULT_INDENT = " ";
 
 export let RST = "\x1b[0m";
-const BOLD = "\x1b[1m";
 
 export const FG_LNUM = "\x1b[38;2;100;100;100m";
 export const FG_DIM = "\x1b[38;2;80;80;80m";
@@ -32,9 +31,10 @@ export let BG_ERROR = BG_DEFAULT;
 // Theme
 // ---------------------------------------------------------------------------
 
-import type { ThemeLike } from "./types.js";
-
-type BgThemeLike = { getBgAnsi?: (key: string) => string };
+type BgThemeLike = {
+	getBgAnsi?: (key: string) => string;
+	bg?: (key: string, text: string) => string;
+};
 
 const ESC_RE = "\u001b";
 
@@ -45,8 +45,14 @@ function parseAnsiRgb(ansi: string): { r: number; g: number; b: number } | null 
 
 function getThemeBgAnsi(theme: BgThemeLike, key: string): string | null {
 	try {
-		const bgAnsi = theme.getBgAnsi?.(key);
-		return bgAnsi && parseAnsiRgb(bgAnsi) ? bgAnsi : null;
+		const direct = theme.getBgAnsi?.(key);
+		if (direct && parseAnsiRgb(direct)) return direct;
+
+		const marker = "\0";
+		const styled = theme.bg?.(key, marker);
+		const markerIndex = styled?.indexOf(marker) ?? -1;
+		const ansi = markerIndex > 0 ? styled?.slice(0, markerIndex) : null;
+		return ansi && parseAnsiRgb(ansi) ? ansi : null;
 	} catch {
 		return null;
 	}
@@ -105,8 +111,12 @@ export function resolveBaseBackground(theme: BgThemeLike | null | undefined): vo
 	const home = process.env.HOME;
 	const configDir = process.env.PRETTY_CONFIG_DIR ?? (home ? join(home, ".pi/agent") : undefined);
 	if (applyPrettyConfigBg(configDir)) return;
-	if (!theme?.getBgAnsi) return;
-	BG_BASE = getThemeBgAnsi(theme, "toolSuccessBg") ?? getThemeBgAnsi(theme, "toolBg") ?? getThemeBgAnsi(theme, "background") ?? BG_DEFAULT;
+	if (!theme?.getBgAnsi && !theme?.bg) return;
+	BG_BASE =
+		getThemeBgAnsi(theme, "toolSuccessBg") ??
+		getThemeBgAnsi(theme, "toolBg") ??
+		getThemeBgAnsi(theme, "background") ??
+		BG_DEFAULT;
 	BG_ERROR = getThemeBgAnsi(theme, "toolErrorBg") ?? BG_BASE;
 	RST = "\x1b[0m";
 }
@@ -117,8 +127,10 @@ export function resolveBaseBackground(theme: BgThemeLike | null | undefined): vo
 
 export function termWidth(): number {
 	if (process.stdout.columns) return Math.max(1, Math.min(process.stdout.columns, 210));
-	const raw = (process.stderr as NodeJS.WriteStream & { columns?: number }).columns ||
-		Number.parseInt(process.env.COLUMNS ?? "", 10) || 200;
+	const raw =
+		(process.stderr as NodeJS.WriteStream & { columns?: number }).columns ||
+		Number.parseInt(process.env.COLUMNS ?? "", 10) ||
+		200;
 	return Math.max(1, Math.min(raw - 4, 210));
 }
 
@@ -209,18 +221,51 @@ export function dirIcon(): string {
 import type { BundledLanguage } from "shiki";
 
 const EXT_LANG: Record<string, BundledLanguage> = {
-	ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-	mjs: "javascript", cjs: "javascript",
-	py: "python", rb: "ruby", rs: "rust", go: "go", java: "java",
-	c: "c", cpp: "cpp", h: "c", hpp: "cpp",
-	cs: "csharp", swift: "swift", kt: "kotlin",
-	html: "html", css: "css", scss: "scss", less: "css",
-	json: "json", jsonc: "jsonc", yaml: "yaml", yml: "yaml",
-	toml: "toml", md: "markdown", mdx: "mdx", sql: "sql",
-	sh: "bash", bash: "bash", zsh: "bash", lua: "lua", php: "php",
-	dart: "dart", xml: "xml", graphql: "graphql", svelte: "svelte", vue: "vue",
-	dockerfile: "dockerfile", makefile: "make",
-	zig: "zig", nim: "nim", elixir: "elixir",
+	ts: "typescript",
+	tsx: "tsx",
+	js: "javascript",
+	jsx: "jsx",
+	mjs: "javascript",
+	cjs: "javascript",
+	py: "python",
+	rb: "ruby",
+	rs: "rust",
+	go: "go",
+	java: "java",
+	c: "c",
+	cpp: "cpp",
+	h: "c",
+	hpp: "cpp",
+	cs: "csharp",
+	swift: "swift",
+	kt: "kotlin",
+	html: "html",
+	css: "css",
+	scss: "scss",
+	less: "css",
+	json: "json",
+	jsonc: "jsonc",
+	yaml: "yaml",
+	yml: "yaml",
+	toml: "toml",
+	md: "markdown",
+	mdx: "mdx",
+	sql: "sql",
+	sh: "bash",
+	bash: "bash",
+	zsh: "bash",
+	lua: "lua",
+	php: "php",
+	dart: "dart",
+	xml: "xml",
+	graphql: "graphql",
+	svelte: "svelte",
+	vue: "vue",
+	dockerfile: "dockerfile",
+	makefile: "make",
+	zig: "zig",
+	nim: "nim",
+	elixir: "elixir",
 };
 
 export function detectLang(fp: string): BundledLanguage | undefined {

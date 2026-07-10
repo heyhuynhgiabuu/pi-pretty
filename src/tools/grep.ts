@@ -1,19 +1,14 @@
 /* pi-pretty: grep tool -- FFF-backed text search with SDK fallback. */
 
-import {
-	type ToolDefinition,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
-import type { SdkToolDef, GrepDetails, FffServiceWithCursor, TextContent, ThemeLike, RenderCtxLike } from "../types.js";
-import { TOOL_RESULT_INDENT, MAX_PREVIEW_LINES, BG_ERROR, FG_DIM, RST, resolveBaseBackground } from "../config.js";
-import { shortPath, normalizeLineEndings } from "../helpers.js";
-import { wrapExecuteWithMetrics } from "./metrics.js";
-import { renderToolError, fillToolBackground } from "../render.js";
-import { resolveTextCtor } from "../tui-text.js";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { BG_ERROR, FG_DIM, MAX_PREVIEW_LINES, RST, resolveBaseBackground, TOOL_RESULT_INDENT } from "../config.js";
 import { fffFormatGrepText } from "../fff-helpers.js";
+import { normalizeLineEndings, shortPath } from "../helpers.js";
 import { NOTICE_PARTIAL_FILE_INDEX } from "../notices.js";
+import { fillToolBackground, renderToolError } from "../render.js";
+import { resolveTextCtor } from "../tui-text.js";
+import type { FffServiceWithCursor, GrepDetails, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
+import { wrapExecuteWithMetrics } from "./metrics.js";
 
 const invalidArg = "<missing>";
 
@@ -111,7 +106,7 @@ export function registerGrepTool(
 			const limit = args.limit;
 			const literal = args.literal === true;
 			const caseInsensitive = args.caseInsensitive === true || args.ignoreCase === true;
-			let out = `${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", `/${pattern || ""}/`)}${theme.fg("toolOutput", ` in ${path}`)}`;
+			let out = `${theme.fg(ctx.isError ? "error" : "toolTitle", theme.bold("✱ grep"))} ${theme.fg("toolTitle", `/${pattern || ""}/`)}${theme.fg("toolOutput", ` in ${path}`)}`;
 			if (glob) out += theme.fg("dim", ` (${String(glob)})`);
 			if (limit !== undefined && limit !== null) out += theme.fg("dim", ` limit ${limit}`);
 			if (literal) out += theme.fg("dim", ` (literal)`);
@@ -158,13 +153,15 @@ export function registerGrepTool(
 				if (remaining > 0) {
 					out.push(theme.fg("muted", `… (${remaining} more ${remaining === 1 ? "line" : "lines"}, to expand)`));
 				}
-				const body = out.map((l) => `${TOOL_RESULT_INDENT}${l}`).join("\n") + "\n\n";
+				const body = `${out.map((l) => `${TOOL_RESULT_INDENT}${l}`).join("\n")}\n\n`;
 				text.setText(fillToolBackground(body, ctx.isError ? BG_ERROR : undefined));
 				return text;
 			}
 			const fc = result.content?.[0];
 			const fallback = fc && "text" in fc ? String(fc.text).slice(0, 120) : "no matches";
-			text.setText(fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", fallback)}`, ctx.isError ? BG_ERROR : undefined));
+			text.setText(
+				fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", fallback)}`, ctx.isError ? BG_ERROR : undefined),
+			);
 			return text;
 		},
 	} as unknown as ToolDefinition<any, any, any>);

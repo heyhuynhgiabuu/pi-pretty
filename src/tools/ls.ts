@@ -1,17 +1,21 @@
 /* pi-pretty: ls tool -- directory listing with styled output. */
 
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
-	type ToolDefinition,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
-import type { SdkToolDef, LsDetails, TextContent, ComponentLike, ThemeLike, RenderCtxLike } from "../types.js";
-import { TOOL_RESULT_INDENT, resolveBaseBackground, termWidth, MAX_PREVIEW_LINES, BG_BASE, BG_ERROR, FG_DIM, RST } from "../config.js";
+	BG_BASE,
+	BG_ERROR,
+	FG_DIM,
+	MAX_PREVIEW_LINES,
+	RST,
+	resolveBaseBackground,
+	TOOL_RESULT_INDENT,
+	termWidth,
+} from "../config.js";
 import { shortPath } from "../helpers.js";
-import { wrapExecuteWithMetrics } from "./metrics.js";
-import { renderTree, renderToolError, renderToolMetrics, fillToolBackground } from "../render.js";
+import { fillToolBackground, renderToolError, renderToolMetrics, renderTree } from "../render.js";
 import { resolveTextCtor } from "../tui-text.js";
+import type { ComponentLike, LsDetails, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
+import { wrapExecuteWithMetrics } from "./metrics.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
 
@@ -91,7 +95,9 @@ export function registerLsTool(
 			}
 			const fc = result.content?.[0];
 			text.setText(
-				fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 120) : "done")}`),
+				fillToolBackground(
+					`${TOOL_RESULT_INDENT}${theme.fg("dim", fc && "text" in fc ? String(fc.text).slice(0, 120) : "done")}`,
+				),
 			);
 			return text;
 		},

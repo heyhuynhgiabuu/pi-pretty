@@ -1,6 +1,6 @@
 {
 	"name": "@heyhuynhgiabuu/pi-pretty",
-	"version": "0.6.16",
+	"version": "0.6.17",
 	"description": "Pretty terminal output for pi — syntax-highlighted file reads, colored bash output, tree-view directory listings, and more.",
 	"keywords": [
 		"pi",
@@ -42,8 +42,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.5",
-		"@earendil-works/pi-ai": "^0.80.0",
-		"@earendil-works/pi-coding-agent": "^0.80.3",
+		"@earendil-works/pi-ai": "^0.80.6",
+		"@earendil-works/pi-coding-agent": "^0.80.6",
 		"@earendil-works/pi-tui": "*",
 		"@types/node": "^20.0.0",
 		"typescript": "^5.0.0",
