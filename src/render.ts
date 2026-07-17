@@ -7,6 +7,9 @@
 
 import { basename, dirname } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+// Top-level value import so jiti's pi-tui alias applies (it only rewrites
+// static top-level import/require, not function-body require — see tui-text.ts).
+import { Text as TuiText, truncateToWidth } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
 import type { BundledLanguage } from "shiki";
 import {
@@ -40,13 +43,9 @@ import {
 } from "./helpers.js";
 import type { RenderCtxLike as RenderContext, ThemeLike } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Lazy imports — avoid top-level require() that blocks module loading
-// ---------------------------------------------------------------------------
-
-/** Lazy accessor to pi-tui's truncateToWidth */
+/** Thin wrapper over pi-tui's truncateToWidth (imported at top level above). */
 function _truncateToWidth(text: string, maxWidth: number, ellipsis?: string, pad?: boolean): string {
-	return require("@earendil-works/pi-tui").truncateToWidth(text, maxWidth, ellipsis, pad);
+	return truncateToWidth(text, maxWidth, ellipsis, pad);
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +386,7 @@ export async function renderGrepResults(text: string, pattern: string): Promise<
 export function makeRenderCall(toolName: string) {
 	return (args: Record<string, unknown>, theme: ThemeLike, ctx: RenderContext) => {
 		resolveBaseBackground(theme);
-		const text = ctx.lastComponent ?? new (require("@earendil-works/pi-tui").Text)("", 0, 0);
+		const text = ctx.lastComponent ?? new TuiText("", 0, 0);
 		const bg = ctx.isError ? BG_ERROR : undefined;
 		text.setText(fillToolBackground(`${theme.fg("toolTitle", theme.bold(toolName))}`, bg));
 		return text;
@@ -397,7 +396,7 @@ export function makeRenderCall(toolName: string) {
 export function makeRenderResult() {
 	return (result: AgentToolResult<Record<string, unknown>>, _opt: unknown, theme: ThemeLike, ctx: RenderContext) => {
 		resolveBaseBackground(theme);
-		const text = ctx.lastComponent ?? new (require("@earendil-works/pi-tui").Text)("", 0, 0);
+		const text = ctx.lastComponent ?? new TuiText("", 0, 0);
 		if (ctx.isError) {
 			text.setText(renderToolError(getTextContent(result) || "Error", theme));
 			return text;
