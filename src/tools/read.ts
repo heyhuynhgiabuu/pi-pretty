@@ -1,7 +1,6 @@
 /* pi-pretty: read tool -- file reading with syntax highlighting and inline image support. */
 
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Image as TuiImage } from "@earendil-works/pi-tui";
 import {
 	BG_BASE,
 	BG_ERROR,
@@ -48,8 +47,6 @@ export function registerReadTool(
 				result.details = {
 					_type: "readImage",
 					filePath: String(p.path ?? ""),
-					data: imageBlock.data,
-					mimeType: imageBlock.mimeType ?? "image/png",
 				} as ReadDetails;
 				return result;
 			}
@@ -92,19 +89,10 @@ export function registerReadTool(
 
 			const d = result.details as ReadDetails | undefined;
 
-			// Image rendering — use pi-tui Image component
+			// Image content is preserved for ToolExecution's host-generic image pass.
 			if (d?._type === "readImage") {
-				const mimeType = d.mimeType.startsWith("image/svg") ? "image/svg+xml" : d.mimeType;
-				return new TuiImage(
-					d.data,
-					mimeType,
-					{
-						fallbackColor: (text) => theme.fg("toolTitle", text),
-					},
-					{
-						filename: d.filePath,
-					},
-				);
+				text.setText("");
+				return text;
 			}
 
 			// File content — line-numbered display

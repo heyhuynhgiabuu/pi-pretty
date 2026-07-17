@@ -51,7 +51,7 @@ export interface ComponentLike {
 // ---------------------------------------------------------------------------
 
 export type ReadDetails =
-	| { _type: "readImage"; filePath: string; data: string; mimeType: string }
+	| { _type: "readImage"; filePath: string }
 	| { _type: "readFile"; filePath: string; content: string; offset: number; lineCount: number };
 
 export interface BashDetails extends Record<string, unknown> {
