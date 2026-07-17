@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.18] - 2026-07-17
+
+### Changed
+
+- Upgraded `@ff-labs/fff-node` from 0.9.6 to 0.10.0.
+- Standardized pi-tui `Text` resolution on static imports through Pi's extension loader.
+
+### Fixed
+
+- Tool calls and results no longer render blank when Pi supplies `@earendil-works/pi-tui` through a jiti alias ([#3](https://github.com/heyhuynhgiabuu/pi-pretty/issues/3), [#4](https://github.com/heyhuynhgiabuu/pi-pretty/pull/4)).
+- Removed the silent `StubText` fallback while preserving explicit constructor injection for tests and custom renderers.
+
 ## [0.6.17] - 2026-07-11
 
 ### Changed
