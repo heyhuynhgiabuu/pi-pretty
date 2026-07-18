@@ -1,196 +1,109 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerReadTool } from "../src/tools/read.js";
+import type { ToolContent } from "../src/types.js";
 
-import piPrettyExtension, { __imageInternals } from "../src/index.js";
-
-const mockTheme = {
-	fg: (_key: string, text: string) => text,
-	bold: (text: string) => text,
-};
-
-const ENV_KEYS = [
-	"TMUX",
-	"TERM",
-	"TERM_PROGRAM",
-	"LC_TERMINAL",
-	"GHOSTTY_RESOURCES_DIR",
-	"KITTY_WINDOW_ID",
-	"KITTY_PID",
-	"WEZTERM_EXECUTABLE",
-	"WEZTERM_CONFIG_DIR",
-	"WEZTERM_CONFIG_FILE",
-	"COLORTERM",
-	"PRETTY_IMAGE_PROTOCOL",
-] as const;
-const agentDir = "/tmp/pi-pretty-image-test";
+const mockTheme = { fg: (_key: string, text: string) => text, bold: (text: string) => text };
 
 class MockText {
 	private text = "";
-	constructor(_text = "", _x = 0, _y = 0) {}
 	setText(value: string) {
 		this.text = value;
 	}
 	getText() {
 		return this.text;
 	}
+	render() {
+		return this.text ? [this.text] : [];
+	}
 }
 
-function mockToolFactory(exec: any) {
-	return (_cwd: string) => ({
-		name: "mock",
-		description: "mock",
-		parameters: { type: "object", properties: {} },
-		execute: exec,
-	});
-}
-
-function loadReadTool(readExec: any) {
-	const noopExec = async () => ({ content: [{ type: "text", text: "" }] });
-	const tools = new Map<string, any>();
-	const pi = {
-		registerTool: (tool: any) => tools.set(tool.name, tool),
-		registerCommand: () => {},
-		on: () => {},
-	};
-
-	piPrettyExtension(pi, {
-		sdk: {
-			createReadToolDefinition: mockToolFactory(readExec),
-			createBashToolDefinition: mockToolFactory(noopExec),
-			createLsToolDefinition: mockToolFactory(noopExec),
-			createFindToolDefinition: mockToolFactory(noopExec),
-			createGrepToolDefinition: mockToolFactory(noopExec),
-			getAgentDir: () => agentDir,
+function loadReadTool(content: ToolContent[]) {
+	let tool: any;
+	registerReadTool(
+		{ registerTool: (definition: any) => (tool = definition) } as any,
+		process.cwd(),
+		undefined,
+		{
+			description: "read fixture",
+			parameters: { type: "object", properties: {} },
+			execute: async () => ({ content, details: {} }),
 		},
-		TextComponent: MockText,
-	});
-
-	return tools.get("read");
+		MockText,
+	);
+	return tool;
 }
 
-describe("image rendering terminal detection", () => {
-	const envSnapshot = new Map<string, string | undefined>();
+async function executeAndRender(content: ToolContent[]) {
+	const tool = loadReadTool(content);
+	const result = await tool.execute("t1", { path: "media/image.png" }, null, null, {});
+	const rendered = tool.renderResult(result, {}, mockTheme, {
+		lastComponent: new MockText(),
+		isError: false,
+		state: {},
+		expanded: false,
+	});
+	return { result, rendered };
+}
 
-	beforeEach(() => {
-		rmSync(agentDir, { recursive: true, force: true });
-		mkdirSync(agentDir, { recursive: true });
-		for (const key of ENV_KEYS) {
-			envSnapshot.set(key, process.env[key]);
-			delete process.env[key];
-		}
-		__imageInternals.resetCachesForTests();
+const originalMarker = process.env.HERDR_KITTY_GRAPHICS;
+afterEach(() => {
+	if (originalMarker === undefined) delete process.env.HERDR_KITTY_GRAPHICS;
+	else process.env.HERDR_KITTY_GRAPHICS = originalMarker;
+});
+
+describe("read image presentation ownership", () => {
+	it("preserves ordered image blocks while keeping payload out of details", async () => {
+		const content: ToolContent[] = [
+			{ type: "image", data: "first", mimeType: "image/png" },
+			{ type: "text", text: "between" },
+			{ type: "image", data: "second", mimeType: "image/jpeg" },
+		];
+		const { result } = await executeAndRender(content);
+		expect(result.content).toEqual(content);
+		expect(result.content).toHaveLength(3);
+		expect(result.details).toMatchObject({ _type: "readImage", filePath: "media/image.png" });
+		expect(result.details).not.toHaveProperty("data");
+		expect(result.details).not.toHaveProperty("mimeType");
 	});
 
-	afterEach(() => {
-		rmSync(agentDir, { recursive: true, force: true });
-		for (const key of ENV_KEYS) {
-			const value = envSnapshot.get(key);
-			if (value === undefined) delete process.env[key];
-			else process.env[key] = value;
-		}
-		__imageInternals.resetCachesForTests();
+	it("returns empty non-image presentation without raw graphics escapes", async () => {
+		const { rendered } = await executeAndRender([{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]);
+		expect(rendered).toBeInstanceOf(MockText);
+		expect(rendered.getText()).toBe("");
+		const output = rendered.render(80).join("\n");
+		expect(output).not.toContain("\x1b_G");
+		expect(output).not.toContain("\x1b]1337;File=");
 	});
 
-	it("detects kitty protocol inside tmux via KITTY_WINDOW_ID", () => {
-		process.env.TMUX = "/tmp/tmux-1000/default,123,0";
-		process.env.TERM_PROGRAM = "tmux";
-		process.env.KITTY_WINDOW_ID = "1";
-
-		expect(__imageInternals.getOuterTerminal()).toBe("kitty");
-		expect(__imageInternals.detectImageProtocol()).toBe("kitty");
-	});
-
-	it("detects wezterm protocol inside tmux via WEZTERM_EXECUTABLE", () => {
-		process.env.TMUX = "/tmp/tmux-1000/default,123,0";
-		process.env.TERM_PROGRAM = "tmux";
-		process.env.WEZTERM_EXECUTABLE = "/Applications/WezTerm.app/Contents/MacOS/wezterm";
-
-		expect(__imageInternals.getOuterTerminal()).toBe("WezTerm");
-		expect(__imageInternals.detectImageProtocol()).toBe("iterm2");
-	});
-
-	it("falls back to tmux client term for outer terminal detection", () => {
-		process.env.TMUX = "/tmp/tmux-1000/default,123,0";
-		process.env.TERM_PROGRAM = "tmux";
-		__imageInternals.setTmuxClientTermOverrideForTests("xterm-kitty");
-
-		expect(__imageInternals.getOuterTerminal()).toBe("kitty");
-		expect(__imageInternals.detectImageProtocol()).toBe("kitty");
-	});
-
-	it("reports warning when tmux allow-passthrough is off", () => {
-		process.env.TMUX = "/tmp/tmux-1000/default,123,0";
-		__imageInternals.setTmuxAllowPassthroughOverrideForTests(false);
-
-		expect(__imageInternals.getTmuxPassthroughWarning("kitty")).toContain("allow-passthrough is off");
-	});
-
-	it("does not warn when tmux allow-passthrough is enabled", () => {
-		process.env.TMUX = "/tmp/tmux-1000/default,123,0";
-		__imageInternals.setTmuxAllowPassthroughOverrideForTests(true);
-
-		expect(__imageInternals.getTmuxPassthroughWarning("kitty")).toBeNull();
-	});
-
-	it("renders images through pi-tui Image component instead of raw escape text", async () => {
-		process.env.TERM_PROGRAM = "kitty";
-
-		const readTool = loadReadTool(async () => ({
-			content: [{ type: "image", data: Buffer.from("fake").toString("base64"), mimeType: "image/png" }],
-		}));
-
-		const result = await readTool.execute("t1", { path: "media/inline-image.png" }, null, null, {});
-		const rendered = readTool.renderResult(result, {}, mockTheme, {
-			lastComponent: new MockText(),
-			isError: false,
-			state: {},
-			expanded: false,
-			invalidate: () => {},
-			showImages: true,
+	it("is invariant before host rendering when the exact Herdr marker is present", async () => {
+		const image: ToolContent[] = [{ type: "image", data: "same", mimeType: "image/png" }];
+		delete process.env.HERDR_KITTY_GRAPHICS;
+		const absent = await executeAndRender(image);
+		process.env.HERDR_KITTY_GRAPHICS = "1";
+		const present = await executeAndRender(image);
+		expect(present.result.content).toEqual(absent.result.content);
+		expect({ _type: present.result.details._type, filePath: present.result.details.filePath }).toEqual({
+			_type: absent.result.details._type,
+			filePath: absent.result.details.filePath,
 		});
-
-		const { Image } = await import("@earendil-works/pi-tui");
-		expect(rendered).toBeInstanceOf(Image);
+		expect(present.rendered.getText()).toBe(absent.rendered.getText());
 	});
 
-	it("returns Pi TUI's image component for image results", async () => {
-		process.env.TERM_PROGRAM = "kitty";
-
-		const readTool = loadReadTool(async () => ({
-			content: [{ type: "image", data: Buffer.from("fake").toString("base64"), mimeType: "image/png" }],
-		}));
-
-		const result = await readTool.execute("t1", { path: "media/inline-image.png" }, null, null, {});
-		const rendered = readTool.renderResult(result, {}, mockTheme, {
-			lastComponent: new MockText(),
-			isError: false,
-			state: {},
-			expanded: false,
-			invalidate: () => {},
-		});
-
-		const { Image } = await import("@earendil-works/pi-tui");
-		expect(rendered).toBeInstanceOf(Image);
-		expect(result.content).toEqual([
-			{ type: "image", data: Buffer.from("fake").toString("base64"), mimeType: "image/png" },
-		]);
-	});
-
-	it("prefixes a text read label with an arrow", async () => {
-		const readTool = loadReadTool(async () => ({
-			content: [{ type: "text", text: "example" }],
-		}));
-
-		const result = await readTool.execute("t1", { path: "src/example.ts" }, null, null, {});
-		const rendered = readTool.renderResult(result, {}, mockTheme, {
-			lastComponent: new MockText(),
-			isError: false,
-			state: {},
-			expanded: false,
-			invalidate: () => {},
-		});
-
-		expect(rendered.getText()).toContain("→ read");
+	it("keeps text and error rendering behavior", async () => {
+		const tool = loadReadTool([{ type: "text", text: "example" }]);
+		const result = await tool.execute("t1", { path: "src/example.ts" }, null, null, {});
+		expect(
+			tool.renderResult(result, {}, mockTheme, { lastComponent: new MockText(), state: {}, expanded: false }).getText(),
+		).toContain("→ read");
+		expect(
+			tool
+				.renderResult({ content: [{ type: "text", text: "boom" }] }, {}, mockTheme, {
+					lastComponent: new MockText(),
+					state: {},
+					isError: true,
+				})
+				.getText(),
+		).toContain("boom");
 	});
 });
