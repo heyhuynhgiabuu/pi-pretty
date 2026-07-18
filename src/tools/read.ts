@@ -90,8 +90,11 @@ export function registerReadTool(
 			const d = result.details as ReadDetails | undefined;
 
 			// Image content is preserved for ToolExecution's host-generic image pass.
+			// Keep the SDK's text note visible as a fallback when host images are hidden
+			// or unsupported by the terminal.
 			if (d?._type === "readImage") {
-				text.setText("");
+				const note = getText(result);
+				text.setText(note ? fillToolBackground(note, BG_BASE) : "");
 				return text;
 			}
 

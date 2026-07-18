@@ -9,9 +9,6 @@
  *   • Custom ANSI rendering for all tools
  */
 
-// Re-export for tests
-export { __imageInternals } from "./image.js";
-
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { getDefaultAgentDir } from "./config.js";

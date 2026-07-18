@@ -71,7 +71,9 @@ describe("read image presentation ownership", () => {
 		const { rendered } = await executeAndRender([{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]);
 		expect(rendered).toBeInstanceOf(MockText);
 		expect(rendered.getText()).toBe("");
-		expect(rendered.render(80).join("\n")).not.toMatch(/\x1b_G|\x1b\]1337;File=/);
+		const output = rendered.render(80).join("\n");
+		expect(output).not.toContain("\x1b_G");
+		expect(output).not.toContain("\x1b]1337;File=");
 	});
 
 	it("is invariant before host rendering when the exact Herdr marker is present", async () => {
@@ -91,7 +93,17 @@ describe("read image presentation ownership", () => {
 	it("keeps text and error rendering behavior", async () => {
 		const tool = loadReadTool([{ type: "text", text: "example" }]);
 		const result = await tool.execute("t1", { path: "src/example.ts" }, null, null, {});
-		expect(tool.renderResult(result, {}, mockTheme, { lastComponent: new MockText(), state: {}, expanded: false }).getText()).toContain("→ read");
-		expect(tool.renderResult({ content: [{ type: "text", text: "boom" }] }, {}, mockTheme, { lastComponent: new MockText(), state: {}, isError: true }).getText()).toContain("boom");
+		expect(
+			tool.renderResult(result, {}, mockTheme, { lastComponent: new MockText(), state: {}, expanded: false }).getText(),
+		).toContain("→ read");
+		expect(
+			tool
+				.renderResult({ content: [{ type: "text", text: "boom" }] }, {}, mockTheme, {
+					lastComponent: new MockText(),
+					state: {},
+					isError: true,
+				})
+				.getText(),
+		).toContain("boom");
 	});
 });
