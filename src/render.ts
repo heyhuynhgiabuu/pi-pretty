@@ -11,7 +11,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 // static top-level import/require, not function-body require — see tui-text.ts).
 import { Text as TuiText, truncateToWidth } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
-import type { BundledLanguage } from "shiki";
+import type { BundledLanguage, BundledTheme } from "shiki";
 import {
 	BG_BASE,
 	BG_ERROR,
@@ -20,9 +20,7 @@ import {
 	dirIcon,
 	FG_BLUE,
 	FG_DIM,
-	FG_GREEN,
 	FG_LNUM,
-	FG_RED,
 	FG_RULE,
 	FG_YELLOW,
 	MAX_HL_CHARS,
@@ -38,7 +36,6 @@ import {
 	ELAPSED_KEY,
 	formatCharCount,
 	formatElapsedMs,
-	humanSize,
 	normalizeLineEndings,
 } from "./helpers.js";
 import type { RenderCtxLike as RenderContext, ThemeLike } from "./types.js";
@@ -51,8 +48,6 @@ function _truncateToWidth(text: string, maxWidth: number, ellipsis?: string, pad
 // ---------------------------------------------------------------------------
 // Shiki ANSI cache
 // ---------------------------------------------------------------------------
-
-import type { BundledTheme } from "shiki";
 
 const DEFAULT_THEME: BundledTheme = "github-dark";
 
@@ -171,17 +166,13 @@ export function fillToolBackground(text: string, bg = BG_BASE, width?: number): 
 				const stripped = preserveBoxBackground(line);
 				return bg ? bg + stripped : stripped;
 			}
-			const plainLead = line.replace(/\x1b\[[0-9;]*m/g, "");
+			const plainLead = line.replace(ANSI_CAPTURE_RE, "");
 			const skipPad = line.startsWith(TOOL_RESULT_INDENT) || plainLead.startsWith(TOOL_RESULT_INDENT);
 			const fitted = _truncateToWidth(line, width, "", !skipPad);
 			const stripped = preserveBoxBackground(fitted);
 			return bg ? bg + stripped : stripped;
 		})
 		.join("\n");
-}
-
-function rule(w: number): string {
-	return `${FG_RULE}${"─".repeat(w)}${RST}`;
 }
 
 function lnum(n: number, w: number): string {

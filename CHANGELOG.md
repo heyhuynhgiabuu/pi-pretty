@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.19] - 2026-07-19
+
+### Added
+
+- Added skill-aware `SKILL.md` read rendering with themed collapsed and expanded states, frontmatter names, and syntax-highlighted content.
+
+### Fixed
+
+- Delegated image blocks to Pi's host renderer to prevent duplicate output and cross-package `Image` ownership failures while preserving SDK fallback notes.
+- Initialized all tool output as collapsed when an interactive Pi session starts.
+
+### Maintenance
+
+- Declared Shiki directly, removed unused Typebox and dead rendering helpers, and cleared dependency audit findings.
+
 ## [0.6.18] - 2026-07-17
 
 ### Changed

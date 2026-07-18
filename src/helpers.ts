@@ -19,55 +19,6 @@ export function shortPath(cwd: string, home: string, p: string): string {
 	return p.replace(home, "~");
 }
 
-export function trimToUndefined(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	return trimmed ? trimmed : undefined;
-}
-
-export function escapeRegexLiteral(text: string): string {
-	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function buildLiteralAlternationPattern(patterns: string[]): string {
-	return patterns
-		.map(escapeRegexLiteral)
-		.sort((a, b) => b.length - a.length)
-		.join("|");
-}
-
-export function shouldIgnoreCaseForPatterns(patterns: string[]): boolean {
-	return patterns.every((pattern) => pattern.toLowerCase() === pattern);
-}
-
-export function getConstraintBackedPath(constraints: string | undefined): string | undefined {
-	const trimmed = trimToUndefined(constraints);
-	if (!trimmed || /\s/.test(trimmed) || trimmed.includes("!") || trimmed.endsWith("/") || /[*?[{]/.test(trimmed)) {
-		return undefined;
-	}
-	return trimmed;
-}
-
-export function getErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-export function humanSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes}B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-// ---------------------------------------------------------------------------
-// Ripgrep match detection
-// ---------------------------------------------------------------------------
-
-export function countRipgrepMatches(text: string): number {
-	return text
-		.trim()
-		.split("\n")
-		.filter((line) => /^.+?[:-]\d+[:-]/.test(line)).length;
-}
-
 export function stripBashExitStatusLine(text: string): string {
 	return normalizeLineEndings(text)
 		.split("\n")

@@ -40,14 +40,6 @@ function buildGlobPattern(pattern: string, path: string | undefined, basePath: s
 	return normalized.startsWith("**/") || normalized.includes("/") ? normalized : `**/${normalized}`;
 }
 
-function appendFindNotices(result: Result, extra: string[]): Result {
-	if (extra.length === 0) return result;
-	const d = result.details;
-	if (!d || d._type !== "findResult") return result;
-	const prev = Array.isArray(d.notices) ? (d.notices as string[]) : [];
-	return { ...result, details: { ...d, notices: [...prev, ...extra] } };
-}
-
 async function sdkFindAsFindResult(
 	sdkTool: SdkToolDef,
 	tid: string,

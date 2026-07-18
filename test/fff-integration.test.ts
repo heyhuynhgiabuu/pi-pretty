@@ -321,6 +321,18 @@ describe("piPrettyExtension integration", () => {
 			expect(events.has("session_shutdown")).toBe(true);
 		});
 
+		it("collapses all tool output when an interactive session starts", async () => {
+			load();
+			const setToolsExpanded = vi.fn();
+			const start = events.get("session_start");
+			if (!start) throw new Error("session_start was not registered");
+
+			await start({}, { cwd: "/tmp/test", mode: "tui", hasUI: true, ui: { setToolsExpanded } });
+
+			expect(setToolsExpanded).toHaveBeenCalledOnce();
+			expect(setToolsExpanded).toHaveBeenCalledWith(false);
+		});
+
 			it("skips tools listed in PRETTY_DISABLE_TOOLS", () => {
 				process.env.PRETTY_DISABLE_TOOLS = "read,find";
 				load();

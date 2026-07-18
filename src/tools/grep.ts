@@ -1,7 +1,7 @@
 /* pi-pretty: grep tool -- FFF-backed text search with SDK fallback. */
 
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { BG_ERROR, FG_DIM, MAX_PREVIEW_LINES, RST, resolveBaseBackground, TOOL_RESULT_INDENT } from "../config.js";
+import { BG_ERROR, FG_DIM, RST, resolveBaseBackground, TOOL_RESULT_INDENT } from "../config.js";
 import { fffFormatGrepText } from "../fff-helpers.js";
 import { normalizeLineEndings, shortPath } from "../helpers.js";
 import { NOTICE_PARTIAL_FILE_INDEX } from "../notices.js";

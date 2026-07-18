@@ -1,7 +1,7 @@
 /* pi-pretty: bash tool -- command execution with styled output. */
 
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { BG_BASE, FG_DIM, MAX_PREVIEW_LINES, resolveBaseBackground, TOOL_RESULT_INDENT, termWidth } from "../config.js";
+import { resolveBaseBackground, TOOL_RESULT_INDENT, termWidth } from "../config.js";
 import { compactErrorLines, inferBashExitCode, stripBashExitStatusLine } from "../helpers.js";
 import { fillToolBackground, renderToolDuration, renderToolError } from "../render.js";
 import { resolveTextCtor } from "../tui-text.js";

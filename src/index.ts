@@ -139,6 +139,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	// ------------------------------------------------------------------
 
 	pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
+		if (ctx.mode === "tui") ctx.ui.setToolsExpanded(false);
+
 		if (!fffService) return;
 
 		try {

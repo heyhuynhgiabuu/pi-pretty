@@ -1,5 +1,6 @@
 /* pi-pretty: read tool -- file reading with syntax highlighting and inline image support. */
 
+import { basename, dirname } from "node:path";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
 	BG_BASE,
@@ -7,19 +8,45 @@ import {
 	FG_DIM,
 	FG_LNUM,
 	FG_RULE,
-	MAX_PREVIEW_LINES,
 	RST,
 	resolveBaseBackground,
 	TOOL_RESULT_INDENT,
 	termWidth,
 } from "../config.js";
 import { normalizeLineEndings, shortPath } from "../helpers.js";
-import { fillToolBackground, renderFileContent, renderToolError, renderToolMetrics } from "../render.js";
+import { fillToolBackground, renderFileContent, renderToolError } from "../render.js";
 import { resolveTextCtor } from "../tui-text.js";
 import type { ReadDetails, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
 import { wrapExecuteWithMetrics } from "./metrics.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
+
+function getSkillName(filePath: string, content: string): string | undefined {
+	if (basename(filePath) !== "SKILL.md") return undefined;
+
+	const lines = content.split("\n");
+	if (lines[0]?.trim() === "---") {
+		const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+		for (const line of lines.slice(1, end < 0 ? 1 : end)) {
+			const match = /^name\s*:\s*(.+?)\s*$/.exec(line);
+			if (!match) continue;
+			const value = match[1].trim();
+			if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+				return value.slice(1, -1).trim() || basename(dirname(filePath));
+			}
+			return value || basename(dirname(filePath));
+		}
+	}
+
+	return basename(dirname(filePath));
+}
+
+function renderSkillHeader(skillName: string, expanded: boolean, theme: ThemeLike): string {
+	const label = theme.fg("accent", "[skill]");
+	const name = theme.fg("toolTitle", skillName);
+	const hint = theme.fg("dim", `ctrl+o to ${expanded ? "collapse" : "expand"}`);
+	return `${label} ${name} ${hint}`;
+}
 
 export function registerReadTool(
 	pi: ExtensionAPI,
@@ -103,9 +130,16 @@ export function registerReadTool(
 				const tw = termWidth();
 				const lines = d.content.split("\n");
 				const total = lines.length;
-				const p2 = shortPath(cwd, home, String(d.filePath ?? ""));
+				const filePath = String(d.filePath ?? "");
+				const skillName = getSkillName(filePath, d.content);
+				const p2 = shortPath(cwd, home, filePath);
 				const off2 = typeof d.offset === "number" ? `:${d.offset}` : "";
 				if (!ctx.expanded) {
+					if (skillName) {
+						const header = renderSkillHeader(skillName, false, theme);
+						text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${header}\n`, BG_BASE));
+						return text;
+					}
 					text.setText(
 						fillToolBackground(
 							`\n${TOOL_RESULT_INDENT}${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}\n${TOOL_RESULT_INDENT}${FG_DIM}${total} lines — ctrl+o to expand${RST}\n`,
@@ -120,7 +154,9 @@ export function registerReadTool(
 				const gw = nw + 3;
 				const cw = Math.max(1, tw - gw);
 
-				const header = `${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}`;
+				const header = skillName
+					? renderSkillHeader(skillName, true, theme)
+					: `${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}`;
 				const out: string[] = ["", `${TOOL_RESULT_INDENT}${header}`];
 				out.push(`${TOOL_RESULT_INDENT}${FG_RULE}${"─".repeat(tw - 1)}${RST}`);
 				for (let i = 0; i < show.length; i++) {
@@ -147,7 +183,10 @@ export function registerReadTool(
 							.split("\n")
 							.map((l) => `${TOOL_RESULT_INDENT}${l}`)
 							.join("\n");
-						const rendered = `\n${TOOL_RESULT_INDENT}${header}\n${padded}\n`;
+						const divider = skillName
+							? `${TOOL_RESULT_INDENT}${FG_RULE}${"─".repeat(Math.max(1, tw - 1))}${RST}\n`
+							: "";
+						const rendered = `\n${TOOL_RESULT_INDENT}${header}\n${divider}${padded}\n`;
 						text.setText(fillToolBackground(rendered, BG_BASE));
 						(ctx as any).state._rt = rendered;
 					})
