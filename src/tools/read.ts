@@ -100,7 +100,7 @@ export function registerReadTool(
 
 			const path = String(args.path ?? "");
 			const label = theme.fg("error", theme.bold("→ read"));
-			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${label} ${theme.fg("toolTitle", path)}`, BG_ERROR));
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${label} ${theme.fg("toolTitle", path)}\n`, BG_ERROR));
 			return text;
 		},
 

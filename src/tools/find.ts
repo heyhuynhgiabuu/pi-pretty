@@ -150,7 +150,7 @@ export function registerFindTool(
 			const pathPart = theme.fg("toolOutput", pathArg);
 			const limitPart = limit !== undefined && limit !== null ? theme.fg("dim", ` limit ${limit}`) : "";
 			const out = `${findLabel} ${patternPart}${inPart}${pathPart}${limitPart}`;
-			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}`, ctx.isError ? BG_ERROR : undefined));
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}\n`, ctx.isError ? BG_ERROR : undefined));
 			return text;
 		},
 

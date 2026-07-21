@@ -51,7 +51,7 @@ export function registerLsTool(
 			let out = theme.fg("toolTitle", theme.bold("ls"));
 			if (path) out += ` ${theme.fg("accent", path)}`;
 			if (limit !== undefined && limit !== null) out += theme.fg("toolOutput", ` (limit ${limit})`);
-			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}`, ctx.isError ? BG_ERROR : undefined));
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}\n`, ctx.isError ? BG_ERROR : undefined));
 			return text;
 		},
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.20] - 2026-07-21
+
+### Fixed
+
+- Restored syntax highlighting and custom rendering for managed Pi package installs by resolving built-in tool factories through Pi's host SDK alias ([#7](https://github.com/heyhuynhgiabuu/pi-pretty/issues/7)).
+- Added one bottom padding row to all custom tool call headers for clearer separation from tool results.
+
 ## [0.6.19] - 2026-07-19
 
 ### Added

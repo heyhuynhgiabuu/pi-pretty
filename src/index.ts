@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import * as hostSdk from "@earendil-works/pi-coding-agent";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { getDefaultAgentDir } from "./config.js";
 import { type FffService, getSharedFffService } from "./fff.js";
@@ -18,7 +19,7 @@ import { registerFindTool } from "./tools/find.js";
 import { registerGrepTool } from "./tools/grep.js";
 import { registerLsTool } from "./tools/ls.js";
 import { registerReadTool } from "./tools/read.js";
-import type { PiPrettyDeps } from "./types.js";
+import type { PiPrettyDeps, SdkTools } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -177,38 +178,24 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	});
 
 	// ------------------------------------------------------------------
-	// Resolve SDK tools, if available
+	// Resolve SDK tools
 	// ------------------------------------------------------------------
-	// The SDK import is optional. Do not return from the extension if it fails;
-	// FFF commands/indexing above must remain available in published npm installs.
+	// Pi aliases static SDK imports to its host package for managed extensions.
+	// Native dynamic imports bypass that alias because the managed npm root omits
+	// Pi peer dependencies.
 
-	let sdk: any = deps?.sdk ?? {};
-	let createReadTool: any = sdk.createReadTool ?? sdk.createReadToolDefinition;
-	let createBashTool: any = sdk.createBashTool ?? sdk.createBashToolDefinition;
-	let createLsTool: any = sdk.createLsTool ?? sdk.createLsToolDefinition;
-	let createFindTool: any = sdk.createFindTool ?? sdk.createFindToolDefinition;
-	let createGrepTool: any = sdk.createGrepTool ?? sdk.createGrepToolDefinition;
-
-	if (!deps) {
-		try {
-			// Dynamic import() uses ESM resolution (not CJS interop), so it
-			// correctly resolves subpath exports like @earendil-works/pi-ai/base
-			// which only have "import" conditions in their exports map.
-			const mod = await import("@earendil-works/pi-coding-agent");
-			sdk = mod;
-			createReadTool = sdk.createReadToolDefinition ?? sdk.createReadTool;
-			createBashTool = sdk.createBashToolDefinition ?? sdk.createBashTool;
-			createLsTool = sdk.createLsToolDefinition ?? sdk.createLsTool;
-			createFindTool = sdk.createFindToolDefinition ?? sdk.createFindTool;
-			createGrepTool = sdk.createGrepToolDefinition ?? sdk.createGrepTool;
-		} catch {
-			createReadTool = undefined;
-			createBashTool = undefined;
-			createLsTool = undefined;
-			createFindTool = undefined;
-			createGrepTool = undefined;
-		}
-	}
+	const sdk: SdkTools = deps?.sdk ?? {
+		createReadToolDefinition: hostSdk.createReadToolDefinition,
+		createBashToolDefinition: hostSdk.createBashToolDefinition,
+		createLsToolDefinition: hostSdk.createLsToolDefinition,
+		createFindToolDefinition: hostSdk.createFindToolDefinition,
+		createGrepToolDefinition: hostSdk.createGrepToolDefinition,
+	};
+	const createReadTool = sdk.createReadToolDefinition ?? sdk.createReadTool;
+	const createBashTool = sdk.createBashToolDefinition ?? sdk.createBashTool;
+	const createLsTool = sdk.createLsToolDefinition ?? sdk.createLsTool;
+	const createFindTool = sdk.createFindToolDefinition ?? sdk.createFindTool;
+	const createGrepTool = sdk.createGrepToolDefinition ?? sdk.createGrepTool;
 
 	// ------------------------------------------------------------------
 	// Tool registration

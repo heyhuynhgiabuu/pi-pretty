@@ -54,7 +54,7 @@ function withStdoutColumns<T>(columns: number, fn: () => T): T {
 	}
 }
 
-function loadBashTool() {
+function loadTools() {
 	const noopExec = async () => ({ content: [{ type: "text", text: "" }] });
 	const tools = new Map<string, any>();
 	const pi = {
@@ -75,12 +75,55 @@ function loadBashTool() {
 		TextComponent: MockText,
 	});
 
-	return tools.get("bash");
+	return tools;
+}
+
+function loadBashTool() {
+	return loadTools().get("bash");
 }
 
 describe("bash renderCall expansion", () => {
 	beforeEach(() => {
 		process.stdout.columns = 100;
+	});
+
+	it("adds one bottom padding row to every tool header", () => {
+		const previousEnabledTools = process.env.PRETTY_ENABLE_TOOLS;
+		const previousDisabledTools = process.env.PRETTY_DISABLE_TOOLS;
+		process.env.PRETTY_ENABLE_TOOLS = "ls";
+		delete process.env.PRETTY_DISABLE_TOOLS;
+		const tools = loadTools();
+		if (previousEnabledTools === undefined) {
+			delete process.env.PRETTY_ENABLE_TOOLS;
+		} else {
+			process.env.PRETTY_ENABLE_TOOLS = previousEnabledTools;
+		}
+		if (previousDisabledTools === undefined) {
+			delete process.env.PRETTY_DISABLE_TOOLS;
+		} else {
+			process.env.PRETTY_DISABLE_TOOLS = previousDisabledTools;
+		}
+		expect([...tools.keys()].sort()).toEqual(["bash", "find", "grep", "ls", "read"]);
+		const headers: Array<[string, Record<string, unknown>, boolean]> = [
+			["bash", { command: "pwd" }, false],
+			["find", { pattern: "*.ts", path: "src" }, false],
+			["grep", { pattern: "TODO", path: "src" }, false],
+			["ls", { path: "src" }, false],
+			["read", { path: "missing.ts" }, true],
+		];
+
+		for (const [name, args, isError] of headers) {
+			const rendered = tools.get(name).renderCall(args, mockTheme, {
+				lastComponent: new MockText(),
+				isError,
+				state: {},
+				expanded: false,
+				invalidate: () => {},
+			});
+			const lines = stripAnsi(rendered.getText()).split("\n");
+			expect(lines.at(-1)?.trim(), name).toBe("");
+			expect(lines.at(-2)?.trim(), name).not.toBe("");
+		}
 	});
 
 	it("truncates long commands when collapsed", () => {

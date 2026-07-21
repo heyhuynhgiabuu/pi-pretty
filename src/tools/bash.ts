@@ -66,7 +66,7 @@ export function registerBashTool(
 						: rawCmd;
 			const commandLabel = theme.fg(ctx.isError ? "error" : "toolTitle", theme.bold(`$ ${cmd}`));
 			text.setText(
-				fillToolBackground(`\n${TOOL_RESULT_INDENT}${commandLabel}${t}`, undefined, ctx.expanded ? undefined : tw),
+				fillToolBackground(`\n${TOOL_RESULT_INDENT}${commandLabel}${t}\n`, undefined, ctx.expanded ? undefined : tw),
 			);
 			return text;
 		},

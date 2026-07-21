@@ -138,10 +138,15 @@ export interface SdkToolDef {
 
 export interface SdkTools {
 	createReadTool?: (cwd: string) => SdkToolDef;
+	createReadToolDefinition?: (cwd: string) => SdkToolDef;
 	createBashTool?: (cwd: string) => SdkToolDef;
+	createBashToolDefinition?: (cwd: string) => SdkToolDef;
 	createLsTool?: (cwd: string) => SdkToolDef;
+	createLsToolDefinition?: (cwd: string) => SdkToolDef;
 	createFindTool?: (cwd: string) => SdkToolDef;
+	createFindToolDefinition?: (cwd: string) => SdkToolDef;
 	createGrepTool?: (cwd: string) => SdkToolDef;
+	createGrepToolDefinition?: (cwd: string) => SdkToolDef;
 	getAgentDir?: () => string;
 }
 

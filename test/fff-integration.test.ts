@@ -8,9 +8,10 @@
  *    - Graceful degradation (FFF fails → SDK fallback)
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createFffAutocompleteProvider } from "../src/autocomplete.js";
 import { CursorStore, fffFormatGrepText } from "../src/fff-helpers.js";
@@ -228,6 +229,36 @@ function mkFinder(overrides?: Record<string, any>) {
 }
 
 describe("piPrettyExtension integration", () => {
+	it("registers pretty tools when loaded from a managed package without a local SDK", async () => {
+		const tempRoot = mkdtempSync(join(tmpdir(), "pi-pretty-managed-package-"));
+		const extensionRoot = join(tempRoot, "node_modules", "@heyhuynhgiabuu", "pi-pretty");
+		const extensionNodeModules = join(extensionRoot, "node_modules");
+
+		try {
+			cpSync(join(process.cwd(), "dist"), join(extensionRoot, "dist"), {
+				recursive: true,
+				filter: (path) => !path.endsWith(".map"),
+			});
+			mkdirSync(extensionNodeModules, { recursive: true });
+			for (const dependency of ["@shikijs/cli", "shiki"]) {
+				const target = join(extensionNodeModules, dependency);
+				mkdirSync(dirname(target), { recursive: true });
+				symlinkSync(join(process.cwd(), "node_modules", dependency), target, "junction");
+			}
+
+			const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+			const { loadExtensions } = await import(
+				pathToFileURL(join(dirname(codingAgentEntry), "core", "extensions", "loader.js")).href
+			);
+			const result = await loadExtensions([join(extensionRoot, "dist", "index.js")], tempRoot);
+
+			expect(result.errors).toEqual([]);
+			expect([...result.extensions[0]!.tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
+	});
+
 	let tools: Map<string, any>;
 	let events: Map<string, Function>;
 	let mockPi: any;
@@ -301,6 +332,12 @@ describe("piPrettyExtension integration", () => {
 	// ---- registration --------------------------------------------------
 
 	describe("tool registration", () => {
+		it("uses the host SDK when injected dependencies do not override it", async () => {
+			await piPrettyExtension(mockPi, {});
+
+			expect([...tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
+		});
+
 		it("registers core tools except ls by default", () => {
 			load();
 			for (const n of ["find", "grep", "read", "bash"]) {
