@@ -150,7 +150,7 @@ export function registerReadTool(
 				}
 				const maxShow = lines.length;
 				const show = lines.slice(0, maxShow);
-				const nw = Math.max(3, String(total).length);
+				const nw = Math.max(3, String((d.offset || 0) + total).length);
 				const gw = nw + 3;
 				const cw = Math.max(1, tw - gw);
 
@@ -162,7 +162,7 @@ export function registerReadTool(
 				for (let i = 0; i < show.length; i++) {
 					const ln = (d.offset || 0) + i + 1;
 					const code = show[i] ?? "";
-					const display = code.length > cw ? code.slice(0, cw) + `${FG_DIM}›${RST}` : code;
+					const display = code.length > cw ? code.slice(0, Math.max(0, cw - 1)) + `${FG_DIM}›${RST}` : code;
 					const lineNo = String(ln);
 					out.push(
 						`${TOOL_RESULT_INDENT}${FG_LNUM}${" ".repeat(Math.max(0, nw - lineNo.length))}${lineNo}${RST} ${FG_RULE}│${RST} ${display}${RST}`,

@@ -146,4 +146,22 @@ describe("read line numbering", () => {
 		expect(numberedLines).toHaveLength(2);
 		for (const line of numberedLines) expect(line.length).toBeLessThanOrEqual(25);
 	});
+
+	it("reserves gutter width when offset line numbers cross a digit boundary", async () => {
+		vi.stubEnv("COLUMNS", "28");
+		const content = `${"x".repeat(80)}\n${"y".repeat(80)}`;
+		const rendered = await renderSkill(content, true, "/tmp/example.ts", 998);
+		const synchronousOutput = stripVTControlCharacters(rendered.getText());
+		const synchronousLines = synchronousOutput.split("\n").filter((line) => line.includes("│"));
+		expect(synchronousLines).toHaveLength(2);
+		for (const line of synchronousLines) expect(line.length).toBeLessThanOrEqual(25);
+
+		await vi.waitFor(() => expect(rendered.getUpdateCount()).toBeGreaterThanOrEqual(2));
+		const output = stripVTControlCharacters(rendered.getText());
+		expect(output).toMatch(/^[ \t]*999[ \t]+│/m);
+		expect(output).toMatch(/^[ \t]*1000[ \t]+│/m);
+		const numberedLines = output.split("\n").filter((line) => line.includes("│"));
+		expect(numberedLines).toHaveLength(2);
+		for (const line of numberedLines) expect(line.length).toBeLessThanOrEqual(25);
+	});
 });

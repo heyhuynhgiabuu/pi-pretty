@@ -1,10 +1,14 @@
 # Changelog
 
-## [0.6.21] - 2026-07-21
+## [0.6.21] - 2026-07-29
+
+### Fixed
+
+- Preserved offset-aware line-number gutters after asynchronous syntax highlighting so expanded read output remains numbered across TUI re-renders ([#8](https://github.com/heyhuynhgiabuu/pi-pretty/issues/8)).
 
 ### Maintenance
 
-- Aligned Pi SDK development dependencies and package peers with Pi 0.81.0.
+- Aligned Pi SDK development dependencies and package peers with Pi 0.82.0.
 
 ## [0.6.20] - 2026-07-21
 
