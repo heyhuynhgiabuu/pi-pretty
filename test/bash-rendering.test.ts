@@ -24,6 +24,7 @@ const mockTheme = {
 
 const ansiMockTheme = {
 	fg: (_key: string, text: string) => `\x1b[31m${text}\x1b[0m`,
+	bg: (_key: string, text: string) => `\x1b[48;2;1;2;3m${text}`,
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 };
 

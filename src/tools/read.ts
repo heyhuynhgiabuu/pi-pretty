@@ -177,11 +177,14 @@ export function registerReadTool(
 				(ctx as any).state._rt = rendered;
 
 				// Async syntax highlighting via Shiki
-				renderFileContent(d.content, d.filePath, d.offset || 0, maxShow, tw)
+				renderFileContent(d.content, d.filePath, d.offset || 0, maxShow, cw)
 					.then((hl) => {
 						const padded = hl
 							.split("\n")
-							.map((l) => `${TOOL_RESULT_INDENT}${l}`)
+							.map((line, index) => {
+								const lineNo = String((d.offset || 0) + index + 1);
+								return `${TOOL_RESULT_INDENT}${FG_LNUM}${" ".repeat(Math.max(0, nw - lineNo.length))}${lineNo}${RST} ${FG_RULE}│${RST} ${line}${RST}`;
+							})
 							.join("\n");
 						const divider = skillName
 							? `${TOOL_RESULT_INDENT}${FG_RULE}${"─".repeat(Math.max(1, tw - 1))}${RST}\n`

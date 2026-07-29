@@ -1,5 +1,6 @@
+import { stripVTControlCharacters } from "node:util";
 import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { registerReadTool } from "../src/tools/read.js";
 import type { ReadDetails, SdkToolDef, ThemeLike, ToolContent } from "../src/types.js";
@@ -8,6 +9,8 @@ const mockTheme = {
 	fg: (key: string, text: string) => `<${key}>${text}</${key}>`,
 	bold: (text: string) => text,
 };
+
+afterEach(() => vi.unstubAllEnvs());
 
 class MockText {
 	private text = "";
@@ -30,7 +33,7 @@ class MockText {
 interface ReadToolHarness {
 	execute(
 		toolCallId: string,
-		params: { path: string },
+		params: { path: string; offset?: number },
 		signal: AbortSignal | undefined,
 		onUpdate: undefined,
 		context: Record<string, never>,
@@ -66,9 +69,14 @@ function loadReadTool(content: string): ReadToolHarness {
 	return tool;
 }
 
-async function renderSkill(content: string, expanded: boolean, path = "/tmp/skills/directory-name/SKILL.md") {
+async function renderSkill(
+	content: string,
+	expanded: boolean,
+	path = "/tmp/skills/directory-name/SKILL.md",
+	offset?: number,
+) {
 	const tool = loadReadTool(content);
-	const result = await tool.execute("t1", { path }, undefined, undefined, {});
+	const result = await tool.execute("t1", { path, offset }, undefined, undefined, {});
 	return tool.renderResult(result, {}, mockTheme, {
 		lastComponent: new MockText(),
 		isError: false,
@@ -121,5 +129,21 @@ describe("read skill presentation", () => {
 		const rendered = await renderSkill(skillContent, false, "/tmp/skills/frontmatter-name/README.md");
 		expect(rendered.getText()).toContain("→ read");
 		expect(rendered.getText()).not.toContain("[skill]");
+	});
+});
+
+describe("read line numbering", () => {
+	it("keeps offset line numbers within the terminal width after asynchronous highlighting", async () => {
+		vi.stubEnv("COLUMNS", "28");
+		const content = `const first = "${"x".repeat(80)}";\nconst second = 2;`;
+		const rendered = await renderSkill(content, true, "/tmp/example.ts", 40);
+		await vi.waitFor(() => expect(rendered.getUpdateCount()).toBeGreaterThanOrEqual(2));
+		const output = stripVTControlCharacters(rendered.getText());
+
+		expect(output).toMatch(/^[ \t]*41[ \t]+│/m);
+		expect(output).toMatch(/^[ \t]*42[ \t]+│[ \t]+const second = 2;/m);
+		const numberedLines = output.split("\n").filter((line) => line.includes("│"));
+		expect(numberedLines).toHaveLength(2);
+		for (const line of numberedLines) expect(line.length).toBeLessThanOrEqual(25);
 	});
 });

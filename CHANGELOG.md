@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.21] - 2026-07-21
+
+### Maintenance
+
+- Aligned Pi SDK development dependencies and package peers with Pi 0.81.0.
+
 ## [0.6.20] - 2026-07-21
 
 ### Fixed
