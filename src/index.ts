@@ -14,6 +14,7 @@ import * as hostSdk from "@earendil-works/pi-coding-agent";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { getDefaultAgentDir } from "./config.js";
 import { type FffService, getSharedFffService } from "./fff.js";
+import { createLandstripBashOperations, type PiLandstripRuntimeV2, useLandstrip } from "./landstrip.js";
 import { registerBashTool } from "./tools/bash.js";
 import { registerFindTool } from "./tools/find.js";
 import { registerGrepTool } from "./tools/grep.js";
@@ -53,6 +54,14 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		);
 	};
 	const cwd = process.cwd();
+	let landstripRuntime: PiLandstripRuntimeV2 | undefined;
+	let stopLandstripDiscovery: (() => void) | undefined;
+	let bashRegistered = false;
+	const stopLandstrip = (): void => {
+		stopLandstripDiscovery?.();
+		stopLandstripDiscovery = undefined;
+		landstripRuntime = undefined;
+	};
 
 	// ------------------------------------------------------------------
 	// FFF service init
@@ -139,6 +148,14 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	// Session lifecycle
 	// ------------------------------------------------------------------
 
+	pi.on("session_start", () => {
+		stopLandstrip();
+		stopLandstripDiscovery = useLandstrip(pi, (runtime) => {
+			landstripRuntime = runtime;
+		});
+		registerBashToolOnce();
+	});
+
 	pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
 		if (ctx.mode === "tui") ctx.ui.setToolsExpanded(false);
 
@@ -170,6 +187,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	});
 
 	pi.on("session_shutdown", async () => {
+		stopLandstrip();
 		// Intentionally keep the native FFF finder on session shutdown.
 		// Pi can emit shutdown/start during resume or session switching while the
 		// process keeps running. Native teardown, or dropping the JS handle while the
@@ -204,8 +222,22 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	if (isToolEnabled("read") && createReadTool) {
 		registerReadTool(pi, cwd, null, createReadTool(cwd), TextComp);
 	}
-	if (isToolEnabled("bash") && createBashTool) {
-		registerBashTool(pi, cwd, null, createBashTool(cwd), TextComp);
+	function registerBashToolOnce(): void {
+		if (bashRegistered || !isToolEnabled("bash") || !createBashTool) return;
+		registerBashTool(pi, cwd, null, createBashTool(cwd), TextComp, (ctx) => {
+			const runtime = landstripRuntime;
+			if (!runtime) return undefined;
+			const sandbox = runtime.getContext(ctx).sandbox;
+			if (sandbox === "unavailable") {
+				return {
+					execute: async () => {
+						throw new Error("Sandbox is unavailable; refusing command");
+					},
+				};
+			}
+			return createBashTool(ctx.cwd, { operations: createLandstripBashOperations(runtime, ctx) });
+		});
+		bashRegistered = true;
 	}
 	if (isToolEnabled("ls") && createLsTool) {
 		registerLsTool(pi, cwd, null, createLsTool(cwd), TextComp);

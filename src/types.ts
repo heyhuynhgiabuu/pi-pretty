@@ -3,7 +3,7 @@
  */
 
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, BashToolOptions } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Re-export FFF types needed by tools
@@ -139,8 +139,8 @@ export interface SdkToolDef {
 export interface SdkTools {
 	createReadTool?: (cwd: string) => SdkToolDef;
 	createReadToolDefinition?: (cwd: string) => SdkToolDef;
-	createBashTool?: (cwd: string) => SdkToolDef;
-	createBashToolDefinition?: (cwd: string) => SdkToolDef;
+	createBashTool?: (cwd: string, options?: BashToolOptions) => SdkToolDef;
+	createBashToolDefinition?: (cwd: string, options?: BashToolOptions) => SdkToolDef;
 	createLsTool?: (cwd: string) => SdkToolDef;
 	createLsToolDefinition?: (cwd: string) => SdkToolDef;
 	createFindTool?: (cwd: string) => SdkToolDef;

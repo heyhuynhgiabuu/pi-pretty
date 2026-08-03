@@ -8,7 +8,7 @@
  *    - Graceful degradation (FFF fails → SDK fallback)
  */
 
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -240,7 +240,7 @@ describe("piPrettyExtension integration", () => {
 				filter: (path) => !path.endsWith(".map"),
 			});
 			mkdirSync(extensionNodeModules, { recursive: true });
-			for (const dependency of ["@shikijs/cli", "shiki"]) {
+			for (const dependency of ["@shikijs/cli", "pi-landstrip", "shiki"]) {
 				const target = join(extensionNodeModules, dependency);
 				mkdirSync(dirname(target), { recursive: true });
 				symlinkSync(join(process.cwd(), "node_modules", dependency), target, "junction");
@@ -253,11 +253,17 @@ describe("piPrettyExtension integration", () => {
 			const result = await loadExtensions([join(extensionRoot, "dist", "index.js")], tempRoot);
 
 			expect(result.errors).toEqual([]);
-			expect([...result.extensions[0]!.tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
+			const extension = result.extensions[0];
+			if (!extension) throw new Error("managed extension not loaded");
+			expect([...extension.tools.keys()].sort()).toEqual(["find", "grep", "read"]);
+			const registerBash = extension.handlers.get("session_start")?.[0];
+			expect(registerBash).toBeDefined();
+			await registerBash?.({ type: "session_start", reason: "startup" }, {} as never);
+			expect([...extension.tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
 		} finally {
 			rmSync(tempRoot, { recursive: true, force: true });
 		}
-	});
+	}, 30_000);
 
 	let tools: Map<string, any>;
 	let events: Map<string, Function>;
@@ -300,7 +306,18 @@ describe("piPrettyExtension integration", () => {
 		mockPi = {
 			registerTool: vi.fn((t: any) => tools.set(t.name, t)),
 			registerCommand: vi.fn((c: any) => {}),
-			on: vi.fn((e: string, h: Function) => events.set(e, h)),
+			on: vi.fn((e: string, h: Function) => {
+				const previous = events.get(e);
+				events.set(
+					e,
+					previous
+						? async (...args: unknown[]) => {
+								await previous(...args);
+								return h(...args);
+							}
+						: h,
+				);
+			}),
 		};
 
 		for (const fn of [findExec, grepExec, readExec, bashExec, lsExec]) fn.mockReset();
@@ -316,17 +333,20 @@ describe("piPrettyExtension integration", () => {
 		piPrettyExtension(mockPi, deps);
 	}
 
+	async function startMockSession(): Promise<void> {
+		const start = events.get("session_start");
+		expect(start, "session_start not registered").toBeDefined();
+		await start?.({}, { cwd: "/tmp/test" });
+	}
+
 	afterEach(() => {
 		resetSharedFffServiceForTests();
 		vi.useRealTimers();
 	});
 
 	async function loadWithFFF(finderOverrides?: Record<string, any>) {
-
 		load(true, finderOverrides);
-		const start = events.get("session_start")!;
-		expect(start, "session_start not registered").toBeDefined();
-		await start({}, { cwd: "/tmp/test" });
+		await startMockSession();
 	}
 
 	// ---- registration --------------------------------------------------
@@ -334,12 +354,14 @@ describe("piPrettyExtension integration", () => {
 	describe("tool registration", () => {
 		it("uses the host SDK when injected dependencies do not override it", async () => {
 			await piPrettyExtension(mockPi, {});
+			await startMockSession();
 
 			expect([...tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
 		});
 
-		it("registers core tools except ls by default", () => {
+		it("registers core tools except ls by default", async () => {
 			load();
+			await startMockSession();
 			for (const n of ["find", "grep", "read", "bash"]) {
 				expect(tools.has(n), `missing: ${n}`).toBe(true);
 			}
@@ -370,16 +392,17 @@ describe("piPrettyExtension integration", () => {
 			expect(setToolsExpanded).toHaveBeenCalledWith(false);
 		});
 
-			it("skips tools listed in PRETTY_DISABLE_TOOLS", () => {
-				process.env.PRETTY_DISABLE_TOOLS = "read,find";
-				load();
-				expect(tools.has("read"), "read should be disabled").toBe(false);
-				expect(tools.has("find"), "find should be disabled").toBe(false);
-				expect(tools.has("bash"), "bash should be enabled").toBe(true);
-				expect(tools.has("grep"), "grep should be enabled").toBe(true);
-				expect(tools.has("ls"), "ls should remain disabled by default").toBe(false);
-				delete process.env.PRETTY_DISABLE_TOOLS;
-			});
+		it("skips tools listed in PRETTY_DISABLE_TOOLS", async () => {
+			process.env.PRETTY_DISABLE_TOOLS = "read,find";
+			load();
+			await startMockSession();
+			expect(tools.has("read"), "read should be disabled").toBe(false);
+			expect(tools.has("find"), "find should be disabled").toBe(false);
+			expect(tools.has("bash"), "bash should be enabled").toBe(true);
+			expect(tools.has("grep"), "grep should be enabled").toBe(true);
+			expect(tools.has("ls"), "ls should remain disabled by default").toBe(false);
+			delete process.env.PRETTY_DISABLE_TOOLS;
+		});
 
 		it("lets PRETTY_DISABLE_TOOLS override PRETTY_ENABLE_TOOLS", () => {
 			process.env.PRETTY_ENABLE_TOOLS = "ls";
@@ -391,9 +414,10 @@ describe("piPrettyExtension integration", () => {
 
 
 
-		it("handles whitespace in PRETTY_DISABLE_TOOLS", () => {
+		it("handles whitespace in PRETTY_DISABLE_TOOLS", async () => {
 			process.env.PRETTY_DISABLE_TOOLS = " bash , ls ";
 			load();
+			await startMockSession();
 			expect(tools.has("bash"), "bash should be disabled").toBe(false);
 			expect(tools.has("ls"), "ls should be disabled").toBe(false);
 			expect(tools.has("read"), "read should be enabled").toBe(true);
@@ -401,15 +425,16 @@ describe("piPrettyExtension integration", () => {
 			delete process.env.PRETTY_DISABLE_TOOLS;
 		});
 
-			it("empty PRETTY_DISABLE_TOOLS preserves the default disabled tools", () => {
-				process.env.PRETTY_DISABLE_TOOLS = "";
-				load();
-				for (const n of ["find", "grep", "read", "bash"]) {
-					expect(tools.has(n), `missing: ${n}`).toBe(true);
-				}
-				expect(tools.has("ls")).toBe(false);
-				delete process.env.PRETTY_DISABLE_TOOLS;
-			});
+		it("empty PRETTY_DISABLE_TOOLS preserves the default disabled tools", async () => {
+			process.env.PRETTY_DISABLE_TOOLS = "";
+			load();
+			await startMockSession();
+			for (const n of ["find", "grep", "read", "bash"]) {
+				expect(tools.has(n), `missing: ${n}`).toBe(true);
+			}
+			expect(tools.has("ls")).toBe(false);
+			delete process.env.PRETTY_DISABLE_TOOLS;
+		});
 
 	});
 
