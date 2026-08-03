@@ -145,7 +145,7 @@ Config values take priority over theme-provided backgrounds (`toolBg` / `toolErr
 
 Optional environment variables:
 
-- `PRETTY_THEME` (overrides `~/.pi/agent/settings.json` `theme`; otherwise pi-pretty falls back to that setting before `github-dark`)
+- `PRETTY_THEME` (overrides `~/.pi/agent/settings.json` `theme`; Pi's `dark`/`light` themes map to `github-dark`/`github-light`, and unknown themes fall back to `github-dark`)
 - `PRETTY_CONFIG_DIR` — directory to read `pi-pretty.json` from (default: `~/.pi/agent/`)
 - `PRETTY_MAX_HL_CHARS` (default: `80000`)
 - `PRETTY_MAX_PREVIEW_LINES` (default: `80`)
