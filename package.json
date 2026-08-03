@@ -38,6 +38,7 @@
 	"dependencies": {
 		"@ff-labs/fff-node": "^0.10.0",
 		"@shikijs/cli": "^4.0.2",
+		"pi-landstrip": "^0.18.23",
 		"shiki": "4.0.2"
 	},
 	"devDependencies": {
