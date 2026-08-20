@@ -11,7 +11,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 // static top-level import/require, not function-body require — see tui-text.ts).
 import { Text as TuiText, truncateToWidth } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
-import type { BundledLanguage, BundledTheme } from "shiki";
+import { type BundledLanguage, type BundledTheme, bundledThemes } from "shiki";
 import {
 	BG_BASE,
 	BG_ERROR,
@@ -50,17 +50,28 @@ function _truncateToWidth(text: string, maxWidth: number, ellipsis?: string, pad
 // ---------------------------------------------------------------------------
 
 const DEFAULT_THEME: BundledTheme = "github-dark";
+const PI_THEME_ALIASES: Readonly<Record<string, BundledTheme>> = {
+	dark: "github-dark",
+	light: "github-light",
+};
+
+function asBundledTheme(value: unknown): BundledTheme | undefined {
+	if (typeof value !== "string") return undefined;
+	const alias = PI_THEME_ALIASES[value];
+	if (alias) return alias;
+	return Object.hasOwn(bundledThemes, value) ? (value as BundledTheme) : undefined;
+}
 
 function resolveTheme(): BundledTheme {
-	const env = process.env.PRETTY_THEME as BundledTheme | undefined;
-	if (env) return env;
+	const env = process.env.PRETTY_THEME;
+	if (env) return asBundledTheme(env) ?? DEFAULT_THEME;
 	try {
 		const home = process.env.HOME;
 		if (!home) return DEFAULT_THEME;
 		const settings = JSON.parse(
 			require("node:fs").readFileSync(require("node:path").join(home, ".pi/agent/settings.json"), "utf8"),
 		);
-		return (settings.theme as BundledTheme) ?? DEFAULT_THEME;
+		return asBundledTheme(settings.theme) ?? DEFAULT_THEME;
 	} catch {
 		return DEFAULT_THEME;
 	}

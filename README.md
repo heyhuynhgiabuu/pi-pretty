@@ -119,6 +119,7 @@ Use them when:
 - `find` results are frecency-aware, so files you touch more often can bubble up earlier.
 - `grep` can show a cursor notice when more results are available.
 - If you see a partial index warning, let the session settle or run `/fff-rescan`.
+- When the `pi-landstrip` 0.18.23+ extension is loaded, pi-pretty discovers its V2 runtime lazily and delegates only Bash execution to its sandbox; `read`, `find`, `grep`, and `ls` remain host-side. Package load order does not matter; without pi-landstrip, Bash uses Pi's standard execution backend.
 
 ## Configuration
 
@@ -144,7 +145,7 @@ Config values take priority over theme-provided backgrounds (`toolBg` / `toolErr
 
 Optional environment variables:
 
-- `PRETTY_THEME` (overrides `~/.pi/agent/settings.json` `theme`; otherwise pi-pretty falls back to that setting before `github-dark`)
+- `PRETTY_THEME` (overrides `~/.pi/agent/settings.json` `theme`; Pi's `dark`/`light` themes map to `github-dark`/`github-light`, and unknown themes fall back to `github-dark`)
 - `PRETTY_CONFIG_DIR` — directory to read `pi-pretty.json` from (default: `~/.pi/agent/`)
 - `PRETTY_MAX_HL_CHARS` (default: `80000`)
 - `PRETTY_MAX_PREVIEW_LINES` (default: `80`)

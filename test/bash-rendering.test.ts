@@ -58,10 +58,13 @@ function withStdoutColumns<T>(columns: number, fn: () => T): T {
 function loadTools() {
 	const noopExec = async () => ({ content: [{ type: "text", text: "" }] });
 	const tools = new Map<string, any>();
+	let startSession: (() => void) | undefined;
 	const pi = {
 		registerTool: (tool: any) => tools.set(tool.name, tool),
 		registerCommand: () => {},
-		on: () => {},
+		on: (event: string, handler: () => void) => {
+			if (event === "session_start" && !startSession) startSession = handler;
+		},
 	};
 
 	piPrettyExtension(pi, {
@@ -75,6 +78,7 @@ function loadTools() {
 		},
 		TextComponent: MockText,
 	});
+	startSession?.();
 
 	return tools;
 }

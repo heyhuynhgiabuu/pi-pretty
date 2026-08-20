@@ -9,6 +9,7 @@ import type { BashDetails, ComponentLike, RenderCtxLike, SdkToolDef, TextContent
 import { wrapExecuteWithMetrics } from "./metrics.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
+type BashExecutionToolResolver = (ctx: ExtensionContext) => SdkToolDef | undefined;
 
 export function registerBashTool(
 	pi: ExtensionAPI,
@@ -16,6 +17,7 @@ export function registerBashTool(
 	_fffService: unknown,
 	sdkTool: SdkToolDef,
 	TextComp?: new (t?: string, x?: number, y?: number) => { setText(v: string): void },
+	resolveExecutionTool?: BashExecutionToolResolver,
 ): void {
 	const TC = resolveTextCtor(TextComp);
 
@@ -33,8 +35,10 @@ export function registerBashTool(
 		parameters: sdkTool.parameters,
 		renderShell: "self",
 
-		execute: wrapExecuteWithMetrics(async (tid, params, sig, _upd, ctx: ExtensionContext) => {
+		execute: wrapExecuteWithMetrics(async (tid, params, sig, upd, ctx: ExtensionContext) => {
 			try {
+				const executionTool = resolveExecutionTool?.(ctx);
+				if (executionTool) return (await executionTool.execute(tid, params, sig, upd, ctx)) as Result;
 				return (await sdkTool.execute(tid, params, sig, undefined, ctx)) as Result;
 			} catch (error: unknown) {
 				const msg = error instanceof Error ? error.message : String(error);
