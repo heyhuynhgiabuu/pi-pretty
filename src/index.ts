@@ -217,24 +217,4 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		registerGrepTool(pi, cwd, fffService, createGrepTool(cwd), TextComp);
 	}
 
-	// Fallback padding for SDK-rendered tool bodies. The SDK reads
-	// result.content[0].text and slices collapsed output to roughly the first
-	// 10 lines, so insert bottom padding inside that visible slice.
-	const PADDED_TOOLS = new Set(["read", "grep", "bash"]);
-	const RESULT_LEFT_PAD = "    ";
-	const BOTTOM_PADDING_BY_TOOL: Record<string, number> = { read: 2, grep: 2, bash: 0 };
-	pi.on("tool_result", (event, _ctx) => {
-		if (!PADDED_TOOLS.has(event.toolName)) return undefined;
-		const first = event.content[0];
-		if (!first || first.type !== "text") return undefined;
-		const lines = first.text.split("\n").map((line) => `${RESULT_LEFT_PAD}${line}`);
-		if (lines.length === 0) return undefined;
-
-		const padCount = BOTTOM_PADDING_BY_TOOL[event.toolName] ?? 0;
-		lines.push(...Array.from({ length: padCount }, () => RESULT_LEFT_PAD));
-
-		return {
-			content: [{ type: "text" as const, text: lines.join("\n") }, ...event.content.slice(1)],
-		};
-	});
 }
