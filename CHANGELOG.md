@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.22] - 2026-08-20
+
+### Fixed
+
+- Removed the `tool_result` hook that prepended 4 spaces to every line of `read`, `grep`, and `bash` results ([#10](https://github.com/heyhuynhgiabuu/pi-pretty/issues/10)). The hook mutated model-visible, persisted content instead of the TUI view; rendering padding remains solely in the view layer (`renderResult`/`renderCall`).
+- Added a regression test asserting no `tool_result` handler is registered and `read`/`bash`/`grep` execute output is byte-exact.
+
 ## [0.6.21] - 2026-07-29
 
 ### Fixed
