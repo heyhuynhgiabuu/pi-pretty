@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.23] - 2026-08-21
+
+### Added
+
+- All options are now configurable in `pi-pretty.json` with environment variables as override layer: `theme`, `icons`, `enableTools`, `disableTools`, `maxHlChars`, `maxPreviewLines`, `cacheLimit` (precedence: env var > config file > built-in default; the theme additionally falls back to `~/.pi/agent/settings.json` before the default) ([#12](https://github.com/heyhuynhgiabuu/pi-pretty/issues/12)).
+
+### Fixed
+
+- Syntax highlighting no longer silently degrades to plain text for native pi users: pi's `settings.json` `theme` is a TUI appearance setting (`dark`/`light`/custom names), not a Shiki theme. The resolved theme is now validated against Shiki's bundled themes with a one-time warning and a fallback to `github-dark` when invalid ([#11](https://github.com/heyhuynhgiabuu/pi-pretty/issues/11)).
+
 ## [0.6.22] - 2026-08-20
 
 ### Fixed
