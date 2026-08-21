@@ -11,7 +11,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 // static top-level import/require, not function-body require — see tui-text.ts).
 import { Text as TuiText, truncateToWidth } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
-import type { BundledLanguage, BundledTheme } from "shiki";
+import { type BundledLanguage, type BundledTheme, bundledThemes } from "shiki";
 import {
 	BG_BASE,
 	BG_ERROR,
@@ -51,16 +51,41 @@ function _truncateToWidth(text: string, maxWidth: number, ellipsis?: string, pad
 
 const DEFAULT_THEME: BundledTheme = "github-dark";
 
-function resolveTheme(): BundledTheme {
-	const env = process.env.PRETTY_THEME as BundledTheme | undefined;
-	if (env) return env;
+function isBundledTheme(name: string): name is BundledTheme {
+	return Object.hasOwn(bundledThemes, name);
+}
+
+/**
+ * Resolve the Shiki theme used for syntax highlighting.
+ *
+ * `~/.pi/agent/settings.json`'s `theme` field is pi's TUI appearance setting
+ * (e.g. `dark`, `light`, or a custom pi theme name), which is not a valid
+ * Shiki theme for native users. Validate the candidate against Shiki's
+ * bundled themes; warn once (resolution happens at module load) and fall back
+ * to {@link DEFAULT_THEME} when it is not a bundled theme, instead of
+ * silently degrading every highlighted block to plain text.
+ */
+export function resolveTheme(env = process.env.PRETTY_THEME, home = process.env.HOME): BundledTheme {
+	if (env) {
+		if (!isBundledTheme(env)) {
+			console.warn(`pi-pretty: PRETTY_THEME "${env}" is not a bundled Shiki theme; falling back to "${DEFAULT_THEME}"`);
+			return DEFAULT_THEME;
+		}
+		return env;
+	}
 	try {
-		const home = process.env.HOME;
 		if (!home) return DEFAULT_THEME;
 		const settings = JSON.parse(
 			require("node:fs").readFileSync(require("node:path").join(home, ".pi/agent/settings.json"), "utf8"),
 		);
-		return (settings.theme as BundledTheme) ?? DEFAULT_THEME;
+		const candidate = settings.theme;
+		if (isBundledTheme(candidate)) return candidate;
+		if (typeof candidate === "string") {
+			console.warn(
+				`pi-pretty: theme "${candidate}" from ~/.pi/agent/settings.json is not a bundled Shiki theme; falling back to "${DEFAULT_THEME}"`,
+			);
+		}
+		return DEFAULT_THEME;
 	} catch {
 		return DEFAULT_THEME;
 	}
