@@ -12,7 +12,7 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as hostSdk from "@earendil-works/pi-coding-agent";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
-import { getDefaultAgentDir } from "./config.js";
+import { applyConfig, getDefaultAgentDir, loadConfig, normalizeToolList, resolveToolSets } from "./config.js";
 import { type FffService, getSharedFffService } from "./fff.js";
 import { registerBashTool } from "./tools/bash.js";
 import { registerFindTool } from "./tools/find.js";
@@ -28,12 +28,7 @@ import type { PiPrettyDeps, SdkTools } from "./types.js";
 const DEFAULT_DISABLED_TOOLS = new Set(["ls"]);
 
 function envTools(name: "PRETTY_DISABLE_TOOLS" | "PRETTY_ENABLE_TOOLS"): Set<string> {
-	return new Set(
-		(process.env[name] ?? "")
-			.split(",")
-			.map((tool) => tool.trim().toLowerCase())
-			.filter(Boolean),
-	);
+	return new Set(normalizeToolList((process.env[name] ?? "").split(",")));
 }
 
 // ---------------------------------------------------------------------------
@@ -43,8 +38,13 @@ function envTools(name: "PRETTY_DISABLE_TOOLS" | "PRETTY_ENABLE_TOOLS"): Set<str
 export type { PiPrettyDeps };
 
 export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrettyDeps): Promise<void> {
-	const disabledTools = envTools("PRETTY_DISABLE_TOOLS");
-	const enabledTools = envTools("PRETTY_ENABLE_TOOLS");
+	const config = loadConfig();
+	applyConfig(config);
+	const { disabledTools, enabledTools } = resolveToolSets(
+		envTools("PRETTY_DISABLE_TOOLS"),
+		envTools("PRETTY_ENABLE_TOOLS"),
+		config,
+	);
 	const isToolEnabled = (name: string) => {
 		const normalizedName = name.toLowerCase();
 		return (
@@ -216,5 +216,4 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	if (isToolEnabled("grep") && createGrepTool) {
 		registerGrepTool(pi, cwd, fffService, createGrepTool(cwd), TextComp);
 	}
-
 }

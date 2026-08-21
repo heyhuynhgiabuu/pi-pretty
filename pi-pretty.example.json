@@ -2,5 +2,12 @@
 	"background": {
 		"tool": "#1e1e2e",
 		"error": "#2a1e1e"
-	}
+	},
+	"theme": "github-dark",
+	"icons": "nerd",
+	"enableTools": ["ls"],
+	"disableTools": [],
+	"maxHlChars": 80000,
+	"maxPreviewLines": 80,
+	"cacheLimit": 128
 }

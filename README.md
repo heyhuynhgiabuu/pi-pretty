@@ -124,27 +124,45 @@ Use them when:
 
 ### Config file: `~/.pi/agent/pi-pretty.json`
 
-Place a JSON file alongside Pi's `settings.json` to customize tool output backgrounds:
+Place a JSON file alongside Pi's `settings.json` to customize pi-pretty. Every option can also be set via environment variables, which take precedence over the config file: **`env var > pi-pretty.json > built-in default`** (the theme additionally falls back to `~/.pi/agent/settings.json`'s `theme` before the default).
 
 ```json
 {
 	"background": {
 		"tool": "#1e1e2e",
 		"error": "#2a1e1e"
-	}
+	},
+	"theme": "github-dark",
+	"icons": "nerd",
+	"enableTools": ["ls"],
+	"disableTools": ["grep"],
+	"maxHlChars": 80000,
+	"maxPreviewLines": 80,
+	"cacheLimit": 128
 }
 ```
 
-- `background.tool` — background color for normal tool output boxes (default: terminal default).
-- `background.error` — background color for error tool output (defaults to `tool` background).
+| Key | Type | Env var override | Default |
+| --- | --- | --- | --- |
+| `background.tool` | hex color | — | terminal default |
+| `background.error` | hex color | — | `background.tool` |
+| `theme` | Shiki theme name | `PRETTY_THEME` | `github-dark` (after `pi-pretty.json` `theme`, then `~/.pi/agent/settings.json` `theme`, when valid Shiki themes) |
+| `icons` | `nerd` \| `none` (or `off`) | `PRETTY_ICONS` | `nerd` |
+| `enableTools` | string array | `PRETTY_ENABLE_TOOLS` | `[]` (`ls` is opt-in) |
+| `disableTools` | string array | `PRETTY_DISABLE_TOOLS` | `[]` |
+| `maxHlChars` | positive int | `PRETTY_MAX_HL_CHARS` | `80000` |
+| `maxPreviewLines` | positive int | `PRETTY_MAX_PREVIEW_LINES` | `80` |
+| `cacheLimit` | positive int | `PRETTY_CACHE_LIMIT` | `128` |
 
-Config values take priority over theme-provided backgrounds (`toolBg` / `toolErrorBg`). To override the config directory, set `PRETTY_CONFIG_DIR` env var.
+- Config values take priority over theme-provided backgrounds (`toolBg` / `toolErrorBg`).
+- All options except `background.*` are read once at startup; restart pi to apply changes to them (`background.*` applies live).
+- To override the config directory, set `PRETTY_CONFIG_DIR` env var.
 
 ### Environment variables
 
 Optional environment variables:
 
-- `PRETTY_THEME` (overrides `~/.pi/agent/settings.json` `theme`; otherwise pi-pretty falls back to that setting before `github-dark`)
+- `PRETTY_THEME` (overrides `pi-pretty.json` `theme`, which overrides `~/.pi/agent/settings.json` `theme`; otherwise pi-pretty falls back to that setting before `github-dark`)
 - `PRETTY_CONFIG_DIR` — directory to read `pi-pretty.json` from (default: `~/.pi/agent/`)
 - `PRETTY_MAX_HL_CHARS` (default: `80000`)
 - `PRETTY_MAX_PREVIEW_LINES` (default: `80`)

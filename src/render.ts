@@ -23,6 +23,7 @@ import {
 	FG_LNUM,
 	FG_RULE,
 	FG_YELLOW,
+	loadConfig,
 	MAX_HL_CHARS,
 	MAX_PREVIEW_LINES,
 	RST,
@@ -55,43 +56,64 @@ function isBundledTheme(name: string): name is BundledTheme {
 	return Object.hasOwn(bundledThemes, name);
 }
 
+function pickValidTheme(candidate: string, source: string): BundledTheme {
+	if (isBundledTheme(candidate)) return candidate;
+	console.warn(
+		`pi-pretty: theme "${candidate}" from ${source} is not a bundled Shiki theme; falling back to "${DEFAULT_THEME}"`,
+	);
+	return DEFAULT_THEME;
+}
+
 /**
  * Resolve the Shiki theme used for syntax highlighting.
  *
  * `~/.pi/agent/settings.json`'s `theme` field is pi's TUI appearance setting
  * (e.g. `dark`, `light`, or a custom pi theme name), which is not a valid
  * Shiki theme for native users. Validate the candidate against Shiki's
- * bundled themes; warn once (resolution happens at module load) and fall back
- * to {@link DEFAULT_THEME} when it is not a bundled theme, instead of
- * silently degrading every highlighted block to plain text.
+ * bundled themes; warn once and fall back to {@link DEFAULT_THEME} when it is
+ * not a bundled theme, instead of silently degrading every highlighted block
+ * to plain text.
  */
 export function resolveTheme(env = process.env.PRETTY_THEME, home = process.env.HOME): BundledTheme {
-	if (env) {
-		if (!isBundledTheme(env)) {
-			console.warn(`pi-pretty: PRETTY_THEME "${env}" is not a bundled Shiki theme; falling back to "${DEFAULT_THEME}"`);
-			return DEFAULT_THEME;
-		}
-		return env;
-	}
+	if (env) return pickValidTheme(env, "PRETTY_THEME");
 	try {
 		if (!home) return DEFAULT_THEME;
 		const settings = JSON.parse(
 			require("node:fs").readFileSync(require("node:path").join(home, ".pi/agent/settings.json"), "utf8"),
 		);
 		const candidate = settings.theme;
-		if (isBundledTheme(candidate)) return candidate;
-		if (typeof candidate === "string") {
-			console.warn(
-				`pi-pretty: theme "${candidate}" from ~/.pi/agent/settings.json is not a bundled Shiki theme; falling back to "${DEFAULT_THEME}"`,
-			);
-		}
+		if (typeof candidate === "string") return pickValidTheme(candidate, "~/.pi/agent/settings.json");
 		return DEFAULT_THEME;
 	} catch {
 		return DEFAULT_THEME;
 	}
 }
 
-const THEME: BundledTheme = resolveTheme();
+let _theme: BundledTheme | undefined;
+
+/**
+ * Resolve the effective theme once per session: `PRETTY_THEME` env →
+ * `pi-pretty.json` → `~/.pi/agent/settings.json` → {@link DEFAULT_THEME}.
+ * Resolution is lazy so config-file values applied at extension activation
+ * take effect, and the result is cached (at most one warning per source).
+ */
+export function getTheme(): BundledTheme {
+	if (_theme) return _theme;
+	const env = process.env.PRETTY_THEME;
+	let theme: BundledTheme;
+	if (env) {
+		theme = resolveTheme(env, "");
+	} else {
+		const configTheme = loadConfig().theme;
+		theme =
+			typeof configTheme === "string"
+				? pickValidTheme(configTheme, "pi-pretty.json")
+				: resolveTheme(undefined, process.env.HOME);
+	}
+	_theme = theme;
+	return theme;
+}
+
 const _cache = new Map<string, string[]>();
 
 function _touch(k: string, v: string[]): string[] {
@@ -109,12 +131,12 @@ async function hlBlock(code: string, language: BundledLanguage | undefined): Pro
 	if (!code) return [""];
 	if (!language || code.length > MAX_HL_CHARS) return code.split("\n");
 
-	const k = `${THEME}\0${language}\0${code}`;
+	const k = `${getTheme()}\0${language}\0${code}`;
 	const hit = _cache.get(k);
 	if (hit) return _touch(k, hit);
 
 	try {
-		const ansi = normalizeShikiContrast(await codeToANSI(code, language, THEME));
+		const ansi = normalizeShikiContrast(await codeToANSI(code, language, getTheme()));
 		const out = (ansi.endsWith("\n") ? ansi.slice(0, -1) : ansi).split("\n");
 		return _touch(k, out);
 	} catch {

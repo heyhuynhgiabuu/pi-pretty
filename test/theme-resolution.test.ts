@@ -34,7 +34,7 @@ describe("resolveTheme", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		expect(resolveTheme("dark", "")).toBe(DEFAULT_THEME);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(warn).toHaveBeenCalledWith(expect.stringContaining('PRETTY_THEME "dark"'));
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('theme "dark" from PRETTY_THEME'));
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining(DEFAULT_THEME));
 	});
 

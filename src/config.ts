@@ -67,37 +67,93 @@ function hexToAnsiBg(hex: string): string | null {
 	return `\x1b[48;2;${r};${g};${b}m`;
 }
 
-interface PrettyConfig {
+export interface PrettyConfig {
 	background?: {
 		tool?: string;
 		error?: string;
 	};
+	theme?: string;
+	icons?: string;
+	enableTools?: string[];
+	disableTools?: string[];
+	maxHlChars?: number;
+	maxPreviewLines?: number;
+	cacheLimit?: number;
 }
 
-function readPrettyConfig(agentDir?: string): PrettyConfig {
+/** Normalize a comma-separated env value or JSON array into tool names. */
+export function normalizeToolList(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((v): v is string => typeof v === "string")
+		.map((v) => v.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+function positiveInt(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * Read and validate `pi-pretty.json` from the config directory. Invalid
+ * fields are silently skipped, matching the historical `background`
+ * behavior. The file is re-read on each call; callers that need a stable
+ * value (extension activation, theme resolution) cache the result.
+ */
+export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 	if (!agentDir) return {};
 	try {
-		const raw = readFileSync(join(agentDir, "pi-pretty.json"), "utf8");
-		const parsed = JSON.parse(raw) as PrettyConfig;
+		const parsed = JSON.parse(readFileSync(join(agentDir, "pi-pretty.json"), "utf8")) as PrettyConfig;
+		const config: PrettyConfig = {};
 		if (parsed.background) {
-			if (parsed.background.tool && !hexToAnsiBg(parsed.background.tool)) {
-				parsed.background.tool = undefined;
+			const background: NonNullable<PrettyConfig["background"]> = {};
+			if (parsed.background.tool && hexToAnsiBg(parsed.background.tool)) {
+				background.tool = parsed.background.tool;
 			}
-			if (parsed.background.error && !hexToAnsiBg(parsed.background.error)) {
-				parsed.background.error = undefined;
+			if (parsed.background.error && hexToAnsiBg(parsed.background.error)) {
+				background.error = parsed.background.error;
 			}
-			if (!parsed.background.tool && !parsed.background.error) {
-				parsed.background = undefined;
-			}
+			if (background.tool || background.error) config.background = background;
 		}
-		return parsed;
+		if (typeof parsed.theme === "string" && parsed.theme.trim() !== "") config.theme = parsed.theme;
+		if (typeof parsed.icons === "string") config.icons = parsed.icons;
+		const enableTools = normalizeToolList(parsed.enableTools);
+		const disableTools = normalizeToolList(parsed.disableTools);
+		if (enableTools.length) config.enableTools = enableTools;
+		if (disableTools.length) config.disableTools = disableTools;
+		const maxHlChars = positiveInt(parsed.maxHlChars);
+		const maxPreviewLines = positiveInt(parsed.maxPreviewLines);
+		const cacheLimit = positiveInt(parsed.cacheLimit);
+		if (maxHlChars) config.maxHlChars = maxHlChars;
+		if (maxPreviewLines) config.maxPreviewLines = maxPreviewLines;
+		if (cacheLimit) config.cacheLimit = cacheLimit;
+		return config;
 	} catch {
 		return {};
 	}
 }
 
+export function getConfigDir(): string | undefined {
+	return process.env.PRETTY_CONFIG_DIR ?? getDefaultAgentDir();
+}
+
+/**
+ * Merge env tool sets with config-file tool lists: a non-empty env set wins
+ * over the config file (12-factor precedence); otherwise config applies.
+ */
+export function resolveToolSets(
+	envDisabled: Set<string>,
+	envEnabled: Set<string>,
+	config: Pick<PrettyConfig, "disableTools" | "enableTools">,
+): { disabledTools: Set<string>; enabledTools: Set<string> } {
+	return {
+		disabledTools: envDisabled.size > 0 ? envDisabled : new Set(config.disableTools ?? []),
+		enabledTools: envEnabled.size > 0 ? envEnabled : new Set(config.enableTools ?? []),
+	};
+}
+
 function applyPrettyConfigBg(agentDir?: string): boolean {
-	const config = readPrettyConfig(agentDir);
+	const config = loadConfig(agentDir);
 	if (!config.background?.tool) return false;
 	const toolBg = hexToAnsiBg(config.background.tool);
 	if (!toolBg) return false;
@@ -108,8 +164,7 @@ function applyPrettyConfigBg(agentDir?: string): boolean {
 }
 
 export function resolveBaseBackground(theme: BgThemeLike | null | undefined): void {
-	const home = process.env.HOME;
-	const configDir = process.env.PRETTY_CONFIG_DIR ?? (home ? join(home, ".pi/agent") : undefined);
+	const configDir = getConfigDir();
 	if (applyPrettyConfigBg(configDir)) return;
 	if (!theme?.getBgAnsi && !theme?.bg) return;
 	BG_BASE =
@@ -139,7 +194,7 @@ export function termWidth(): number {
 // ---------------------------------------------------------------------------
 
 const ICONS_MODE = (process.env.PRETTY_ICONS ?? "nerd").toLowerCase();
-export const USE_ICONS = ICONS_MODE !== "none" && ICONS_MODE !== "off";
+export let USE_ICONS = ICONS_MODE !== "none" && ICONS_MODE !== "off";
 
 export const NF_DIR = `${FG_BLUE}\ue5ff${RST}`;
 export const NF_DEFAULT = `${FG_DIM}\uf15b${RST}`;
@@ -284,9 +339,25 @@ export function envInt(name: string, fallback: number): number {
 	return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
-export const MAX_HL_CHARS = envInt("PRETTY_MAX_HL_CHARS", 80_000);
-export const MAX_PREVIEW_LINES = envInt("PRETTY_MAX_PREVIEW_LINES", 80);
-export const CACHE_LIMIT = envInt("PRETTY_CACHE_LIMIT", 128);
+export let MAX_HL_CHARS = envInt("PRETTY_MAX_HL_CHARS", 80_000);
+export let MAX_PREVIEW_LINES = envInt("PRETTY_MAX_PREVIEW_LINES", 80);
+export let CACHE_LIMIT = envInt("PRETTY_CACHE_LIMIT", 128);
+
+/**
+ * Apply `pi-pretty.json` values to the env-backed module bindings. An env
+ * var wins over the config file whenever it is set to a non-empty value;
+ * empty strings are treated as unset. Call once at extension activation,
+ * before any render reads the bindings.
+ */
+export function applyConfig(config: PrettyConfig): void {
+	if (!process.env.PRETTY_MAX_HL_CHARS && config.maxHlChars) MAX_HL_CHARS = config.maxHlChars;
+	if (!process.env.PRETTY_MAX_PREVIEW_LINES && config.maxPreviewLines) MAX_PREVIEW_LINES = config.maxPreviewLines;
+	if (!process.env.PRETTY_CACHE_LIMIT && config.cacheLimit) CACHE_LIMIT = config.cacheLimit;
+	if (!process.env.PRETTY_ICONS && config.icons) {
+		const mode = config.icons.toLowerCase();
+		USE_ICONS = mode !== "none" && mode !== "off";
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Agent directory helpers
