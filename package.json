@@ -1,7 +1,7 @@
 {
 	"name": "@heyhuynhgiabuu/pi-pretty",
-	"version": "0.6.23",
-	"description": "Pretty terminal output for pi — syntax-highlighted file reads, colored bash output, tree-view directory listings, and more.",
+	"version": "0.6.24",
+	"description": "Pretty terminal output for pi \u2014 syntax-highlighted file reads, colored bash output, tree-view directory listings, and more.",
 	"keywords": [
 		"pi",
 		"pi-extension",
@@ -42,9 +42,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.5",
-		"@earendil-works/pi-ai": "^0.82.0",
-		"@earendil-works/pi-coding-agent": "^0.82.0",
-		"@earendil-works/pi-tui": "^0.82.0",
+		"@earendil-works/pi-ai": "^0.84.3",
+		"@earendil-works/pi-coding-agent": "^0.84.3",
+		"@earendil-works/pi-tui": "^0.84.3",
 		"@types/node": "^20.0.0",
 		"typescript": "^5.0.0",
 		"vitest": "^4.0.18"
@@ -58,5 +58,6 @@
 		"extensions": [
 			"./dist/index.js"
 		]
-	}
+	},
+	"type": "module"
 }
