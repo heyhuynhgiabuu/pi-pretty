@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.24] - 2026-08-24
+
+### Fixed
+
+- Extension no longer fails to load when installed as a pi package on pi 0.84.3: the SDK's new `session-share.js` imports `@earendil-works/pi-ai/providers/radius-config`, which jiti's alias table does not cover; under CommonJS extension output the alias pipeline concatenated that subpath onto `dist/compat.js`, producing a nonexistent module and failing startup with `Cannot find module .../dist/compat.js/providers/radius-config`. The package now ships true ESM (`"type": "module"`; tsconfig was already `nodenext`), so runtime SDK imports resolve natively through Node exports maps.
+
+### Changed
+
+- Bumped `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from `^0.82.0` to `^0.84.3`.
+
 ## [0.6.23] - 2026-08-21
 
 ### Added
