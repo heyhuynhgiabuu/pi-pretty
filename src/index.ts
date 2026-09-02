@@ -9,7 +9,15 @@
  *   • Custom ANSI rendering for all tools
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	MessageUpdateEvent,
+	SessionInfoChangedEvent,
+} from "@earendil-works/pi-coding-agent";
 import * as hostSdk from "@earendil-works/pi-coding-agent";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { applyConfig, getDefaultAgentDir, loadConfig, normalizeToolList, resolveToolSets } from "./config.js";
@@ -20,6 +28,16 @@ import { registerGrepTool } from "./tools/grep.js";
 import { registerLsTool } from "./tools/ls.js";
 import { registerReadTool } from "./tools/read.js";
 import type { PiPrettyDeps, SdkTools } from "./types.js";
+import {
+	createThinkingLabelAnimator,
+	installWorkingIndicator,
+	resolveThinkingIndicatorSettings,
+	resolveWorkingIndicatorSettings,
+	type ThinkingLabelAnimator,
+	thinkingBlockActive,
+	WORKING_INTERVAL_MS,
+	type WorkingIndicatorController,
+} from "./working-indicator.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -139,8 +157,70 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	// Session lifecycle
 	// ------------------------------------------------------------------
 
+	const workingSettings = resolveWorkingIndicatorSettings(config.workingIndicator);
+	const thinkingSettings = resolveThinkingIndicatorSettings(config.thinkingIndicator);
+	let workingController: WorkingIndicatorController | undefined;
+	let thinkingAnimator: ThinkingLabelAnimator | undefined;
+	let thinkingInterval: ReturnType<typeof setInterval> | undefined;
+	let thinkingLastMessage: unknown;
+	let thinkingHiddenCache = true;
+	let thinkingHiddenCheckedAt = 0;
+	let workingSessionName: string | undefined;
+	let workingStreaming = false;
+
+	/** pi persists the thinking-visibility toggle as a top-level settings key. */
+	const thinkingHidden = (): boolean => {
+		try {
+			const dir = getDefaultAgentDir();
+			if (!dir) return false;
+			const parsed = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")) as {
+				hideThinkingBlock?: unknown;
+			};
+			return parsed.hideThinkingBlock === true;
+		} catch {
+			return false;
+		}
+	};
+
+	const safeSessionName = (ctx: ExtensionContext): string | undefined => {
+		try {
+			return ctx.sessionManager?.getSessionName?.() ?? undefined;
+		} catch {
+			return undefined;
+		}
+	};
+
+	// (Re-)install the widget: new session, reload, or session rename (the
+	// accent tint tracks the name, omp-style). Preserves streaming state so a
+	// mid-stream rename does not drop the row.
+	const installIndicator = async (ctx: ExtensionContext): Promise<void> => {
+		workingController?.dispose();
+		workingController = undefined;
+		try {
+			const controller = await installWorkingIndicator(ctx.ui, workingSettings, undefined, workingSessionName);
+			workingController = controller;
+			if (workingStreaming) controller.start();
+			// Noop install (disabled/blank) after a previous install → restore pi's loader.
+			if (controller.frames.length === 0) ctx.ui.setWorkingVisible?.(true);
+		} catch (error: unknown) {
+			try {
+				ctx.ui.setWorkingVisible?.(true);
+			} catch {
+				// Host without the API — nothing to restore.
+			}
+			ctx.ui?.notify?.(
+				`pi-pretty working indicator failed: ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
+		}
+	};
+
 	pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
-		if (ctx.mode === "tui") ctx.ui.setToolsExpanded(false);
+		if (ctx.mode === "tui") {
+			ctx.ui.setToolsExpanded(false);
+			workingSessionName = safeSessionName(ctx);
+			await installIndicator(ctx);
+		}
 
 		if (!fffService) return;
 
@@ -169,7 +249,102 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		}
 	});
 
+	// Re-apply the indicator when the session is (re)named so the accent tint
+	// tracks the name; omp derives the accent the same way.
+	pi.on("session_info_changed", async (event: SessionInfoChangedEvent, ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui") return;
+		if (event.name === workingSessionName) return;
+		workingSessionName = event.name;
+		if (workingSettings.enabled) await installIndicator(ctx);
+	});
+
+	// Drive the widget with the streaming lifecycle (host loader is hidden).
+	pi.on("agent_start", async (_event: unknown, ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui") return;
+		workingStreaming = true;
+		workingController?.start();
+	});
+	const stopStreaming = async (_event: unknown, ctx: ExtensionContext): Promise<void> => {
+		if (ctx.mode !== "tui") return;
+		workingStreaming = false;
+		workingController?.stop();
+		stopThinkingShimmer();
+	};
+	pi.on("agent_end", stopStreaming);
+	pi.on("agent_settled", stopStreaming);
+
+	const stopThinkingShimmer = (): void => {
+		if (thinkingInterval) {
+			clearInterval(thinkingInterval);
+			thinkingInterval = undefined;
+		}
+		thinkingAnimator?.restore();
+		thinkingAnimator = undefined;
+		thinkingLastMessage = undefined;
+	};
+
+	// Same 30fps cadence as the working row — but the interval lives ONLY while
+	// the streaming message is actively emitting a thinking block (each label
+	// change rebuilds chat children, so the moment text or tool calls stream the
+	// shimmer stops and pi's default label is restored).
+	const startThinkingShimmer = (ctx: ExtensionContext): void => {
+		if (thinkingInterval || !thinkingSettings.enabled) return;
+		try {
+			thinkingAnimator = createThinkingLabelAnimator(ctx.ui, workingSettings, workingSessionName, thinkingSettings);
+			thinkingHiddenCache = thinkingHidden();
+			thinkingHiddenCheckedAt = Date.now();
+			if (!thinkingHiddenCache) {
+				stopThinkingShimmer();
+				return;
+			}
+			thinkingAnimator.tick();
+			thinkingInterval = setInterval(() => {
+				if (!workingStreaming) {
+					stopThinkingShimmer();
+					return;
+				}
+				const now = Date.now();
+				if (now - thinkingHiddenCheckedAt > 500) {
+					thinkingHiddenCache = thinkingHidden();
+					thinkingHiddenCheckedAt = now;
+					if (!thinkingHiddenCache) {
+						stopThinkingShimmer();
+						return;
+					}
+				}
+				if (!thinkingBlockActive(thinkingLastMessage)) {
+					// Thinking phase over: restore pi's default label and stop.
+					stopThinkingShimmer();
+					return;
+				}
+				thinkingAnimator?.tick();
+			}, WORKING_INTERVAL_MS);
+		} catch (error: unknown) {
+			stopThinkingShimmer();
+			ctx.ui?.notify?.(
+				`pi-pretty thinking indicator failed: ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
+		}
+	};
+
+	// Remember the streaming message; lazily start the shimmer on the first
+	// thinking delta (thinkingHidden() is re-checked at most every 500ms).
+	pi.on("message_update", async (event: MessageUpdateEvent, ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui" || !workingStreaming) return;
+		thinkingLastMessage = event.message;
+		if (thinkingInterval) return;
+		if (!thinkingBlockActive(event.message)) return;
+		startThinkingShimmer(ctx);
+	});
+
 	pi.on("session_shutdown", async () => {
+		// Tear down the widget animation; pi re-runs session_start (and our
+		// install) after resume or session switching.
+		workingController?.dispose();
+		workingController = undefined;
+		stopThinkingShimmer();
+		workingStreaming = false;
 		// Intentionally keep the native FFF finder on session shutdown.
 		// Pi can emit shutdown/start during resume or session switching while the
 		// process keeps running. Native teardown, or dropping the JS handle while the

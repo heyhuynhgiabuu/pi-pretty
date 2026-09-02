@@ -67,6 +67,25 @@ function hexToAnsiBg(hex: string): string | null {
 	return `\x1b[48;2;${r};${g};${b}m`;
 }
 
+export interface WorkingIndicatorConfig {
+	enabled?: boolean;
+	/** One phrase or a list of phrases rotated across sweeps. */
+	text?: string | string[];
+	mode?: "shimmer" | "kitt" | "static";
+	/** Tier colors: a pi theme color name or a `#rrggbb` hex. */
+	low?: string;
+	mid?: string;
+	high?: string;
+	bold?: boolean;
+	hint?: boolean;
+	/** Tint the indicator with a stable per-session accent color. */
+	sessionAccent?: boolean;
+}
+
+export interface ThinkingIndicatorConfig {
+	enabled?: boolean;
+}
+
 export interface PrettyConfig {
 	background?: {
 		tool?: string;
@@ -79,6 +98,8 @@ export interface PrettyConfig {
 	maxHlChars?: number;
 	maxPreviewLines?: number;
 	cacheLimit?: number;
+	workingIndicator?: WorkingIndicatorConfig;
+	thinkingIndicator?: ThinkingIndicatorConfig;
 }
 
 /** Normalize a comma-separated env value or JSON array into tool names. */
@@ -127,6 +148,33 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 		if (maxHlChars) config.maxHlChars = maxHlChars;
 		if (maxPreviewLines) config.maxPreviewLines = maxPreviewLines;
 		if (cacheLimit) config.cacheLimit = cacheLimit;
+		const workingIndicator = parsed.workingIndicator;
+		if (workingIndicator && typeof workingIndicator === "object") {
+			const wi: WorkingIndicatorConfig = {};
+			const src = workingIndicator as Record<string, unknown>;
+			if (typeof src.enabled === "boolean") wi.enabled = src.enabled;
+			if (typeof src.text === "string" && src.text.trim() !== "") wi.text = src.text;
+			else if (Array.isArray(src.text)) {
+				const list = src.text.filter((item) => typeof item === "string" && item.trim() !== "");
+				if (list.length > 0) wi.text = list;
+			}
+			if (src.mode === "shimmer" || src.mode === "kitt" || src.mode === "static") wi.mode = src.mode;
+			for (const tier of ["low", "mid", "high"] as const) {
+				const value = src[tier];
+				if (typeof value === "string" && value.trim() !== "") wi[tier] = value;
+			}
+			if (typeof src.bold === "boolean") wi.bold = src.bold;
+			if (typeof src.hint === "boolean") wi.hint = src.hint;
+			if (typeof src.sessionAccent === "boolean") wi.sessionAccent = src.sessionAccent;
+			if (Object.keys(wi).length > 0) config.workingIndicator = wi;
+		}
+		const thinkingIndicator = parsed.thinkingIndicator;
+		if (thinkingIndicator && typeof thinkingIndicator === "object") {
+			const ti: ThinkingIndicatorConfig = {};
+			const src = thinkingIndicator as Record<string, unknown>;
+			if (typeof src.enabled === "boolean") ti.enabled = src.enabled;
+			if (Object.keys(ti).length > 0) config.thinkingIndicator = ti;
+		}
 		return config;
 	} catch {
 		return {};

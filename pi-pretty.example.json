@@ -5,9 +5,29 @@
 	},
 	"theme": "github-dark",
 	"icons": "nerd",
-	"enableTools": ["ls"],
+	"enableTools": [
+		"ls"
+	],
 	"disableTools": [],
 	"maxHlChars": 80000,
 	"maxPreviewLines": 80,
-	"cacheLimit": 128
+	"cacheLimit": 128,
+	"workingIndicator": {
+		"enabled": true,
+		"text": [
+			"Working…",
+			"Thinking…",
+			"Pondering…"
+		],
+		"mode": "shimmer",
+		"low": "dim",
+		"mid": "muted",
+		"high": "accent",
+		"bold": true,
+		"hint": true,
+		"sessionAccent": true
+	},
+	"thinkingIndicator": {
+		"enabled": true
+	}
 }
