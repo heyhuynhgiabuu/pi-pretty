@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.25] - 2026-08-29
+
+### Added
+
+- omp-style shimmer working indicator: an accent band sweeps the streaming `Working…` row at 30 cells/second over a dim braille spinner, rendered **flush-left** through an extension-owned widget (pi's loader hardcodes a one-column indent the frames API cannot change). `workingIndicator.text` accepts a string or an array of phrases played one sweep per phrase, with a configurable palette (`low`/`mid`/`high` as theme color names or `#hex`), `bold`, `kitt` scanner and `static` modes, and the interrupt hint ([oh-my-pi](https://github.com/can1357/oh-my-pi) shimmer port).
+- Session accent tint: the mid/high tiers and the spinner are tinted with a stable per-session color derived from the session name (an OKLCH port of oh-my-pi's session accent, hue arc plus chroma/lightness bands) — different windows get different hues at uniform perceived brightness; renaming the session re-tints live; explicit `workingIndicator.mid`/`high` colors disable the tint.
+- Thinking-label shimmer: with thinking blocks hidden (pi's `hideThinkingBlock`), the static `Thinking...` label gets the same shimmer — italic `thinkingText` base, accent band, session accent tint — animated at 30fps only during the thinking phase and restored to pi's default label when the phase or the run ends.
+- Config: `workingIndicator` (`enabled`, `text`, `mode` `shimmer`\\|`kitt`\\|`static`, `low`, `mid`, `high`, `bold`, `hint`, `sessionAccent`) and `thinkingIndicator` (`enabled`), each with environment-variable overrides (`PRETTY_WORKING_INDICATOR`, `PRETTY_WORKING_INDICATOR_MODE`, `PRETTY_WORKING_INDICATOR_TEXT`, `PRETTY_THINKING_INDICATOR`).
+
+### Changed
+
+- **Behavior change (both features on by default):** the streaming working row and the hidden-thinking label replace pi's static chrome. Restore pi's defaults with `workingIndicator.enabled: false` and `thinkingIndicator.enabled: false`.
+- Bumped `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from `^0.84.3` to `^0.84.4`.
+
 ## [0.6.24] - 2026-08-24
 
 ### Fixed
