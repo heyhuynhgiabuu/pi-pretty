@@ -204,15 +204,17 @@ hues at uniform perceived brightness. Renaming the session re-tints the indicato
 With thinking blocks hidden (pi's `hideThinkingBlock` setting), the label shows elapsed reasoning
 time (`Thinking... 12s`) under the same shimmer: italic `thinkingText` base with the accent band
 (and the session accent tint) sweeping through it. On the first text or tool delta it freezes as
-`Thought for 12s`, and when that assistant message ends pi's default `Thinking...` label is restored.
-Durations use whole seconds (`12s`, `1m 05s`, `1h 02m 03s`).
+`Thought for 12s`. Durations use whole seconds (`12s`, `1m 05s`, `1h 02m 03s`).
 
-Pi exposes only one global hidden-thinking label, not a per-message label — each label write
-rewrites every hidden thinking row in the transcript. Scoping the completed wording to its own
-message (instead of the whole run) keeps later phases from stamping their frozen duration onto
-older rows. The 30fps ticker runs only while the current message's last block is thinking, bounding
-the cost of `setHiddenThinkingLabel(label)` rebuilding chat children. Inherits `mode`, `bold`, and
-the palette/accent from `workingIndicator`.
+Each row keeps its own label: pi-pretty intercepts the host's per-row label fan-out
+(`AssistantMessageComponent.prototype.setHiddenThinkingLabel`), so the streaming row animates while
+completed rows stay frozen at their own `Thought for 12s` instead of every row mirroring the latest
+write. Durations live for the current session (they are not persisted across restarts). If the host
+class is missing or reshaped, the intercept falls back to pi's global-label behavior — including
+restoring the default `Thinking...` at message end so older rows are never mislabeled. The 30fps
+ticker runs only while the current message's last block is thinking, bounding the cost of
+`setHiddenThinkingLabel(label)` rebuilding chat children. Inherits `mode`, `bold`, and the
+palette/accent from `workingIndicator`.
 
 ### Environment variables
 

@@ -91,9 +91,9 @@ afterEach(() => {
 	rmSync(homeDir, { recursive: true, force: true });
 });
 
-async function loadExtension() {
+async function loadExtension(extraDeps?: Partial<PiPrettyDeps>) {
 	const extension = await freshExtension();
-	const deps = { sdk: {} } as unknown as PiPrettyDeps;
+	const deps = { sdk: {}, ...extraDeps } as unknown as PiPrettyDeps;
 	await extension(mockPi, deps);
 	const ctx = makeCtx();
 	await events.get("session_start")!({}, ctx);
@@ -217,6 +217,54 @@ describe("thinking timer lifecycle wiring", () => {
 		expect(notifications.some((n) => n.type === "warning" && n.message.includes("thinking indicator failed"))).toBe(
 			true,
 		);
+	});
+
+	it("substitutes labels on the real host component: completed rows freeze, active rows animate", async () => {
+		// Resolve the host through node's own loader (import.meta.resolve +
+		// pathToFileURL, the fff-integration pattern) and inject the exact class
+		// via deps — vitest's module graph would otherwise duplicate the instance.
+		const { fileURLToPath, pathToFileURL } = await import("node:url");
+		const hostEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+		const host = (await import(pathToFileURL(hostEntry).href)) as typeof import(
+			"@earendil-works/pi-coding-agent"
+		);
+		host.initTheme();
+		const ctx = await loadExtension({ assistantMessageComponent: host.AssistantMessageComponent });
+		const ts = 4242;
+		const msg = { role: "assistant", timestamp: ts, content: [{ type: "thinking", thinking: "hmm" }] };
+		await events.get("message_update")!({ message: msg }, ctx);
+		await events.get("message_update")!(
+			{ message: { ...msg, content: [...msg.content, { type: "text", text: "answer" }] } },
+			ctx,
+		);
+		expect(labels.at(-1)).toMatch(/^Thought for 0s$/);
+
+		const internals = (component: unknown) => component as { hiddenThinkingLabel?: string };
+		const completedRow = new host.AssistantMessageComponent(undefined, true);
+		(completedRow as unknown as { lastMessage: unknown }).lastMessage = msg;
+		completedRow.setHiddenThinkingLabel("frameX");
+		expect(internals(completedRow).hiddenThinkingLabel).toBe("Thought for 0s");
+
+		// The active row keeps animating frames on the real class too: restart a
+		// phase for a new message and check the incoming frame lands untouched.
+		const activeMsg = { role: "assistant", timestamp: 777, content: [{ type: "thinking", thinking: "x" }] };
+		await events.get("message_update")!({ message: activeMsg }, ctx);
+		const activeRow = new host.AssistantMessageComponent(undefined, true);
+		(activeRow as unknown as { lastMessage: unknown }).lastMessage = activeMsg;
+		activeRow.setHiddenThinkingLabel("shimmer-frame");
+		expect(internals(activeRow).hiddenThinkingLabel).toBe("shimmer-frame");
+		// Completed rows stay frozen while the new phase animates.
+		completedRow.setHiddenThinkingLabel("shimmer-frame");
+		expect(internals(completedRow).hiddenThinkingLabel).toBe("Thought for 0s");
+
+		const unknownRow = new host.AssistantMessageComponent(undefined, true);
+		(unknownRow as unknown as { lastMessage: unknown }).lastMessage = {
+			role: "assistant",
+			timestamp: 9999,
+			content: [{ type: "thinking", thinking: "old" }],
+		};
+		unknownRow.setHiddenThinkingLabel("frameX");
+		expect(internals(unknownRow).hiddenThinkingLabel).toBe("Thinking...");
 	});
 
 	it("restores on session shutdown mid-phase", async () => {

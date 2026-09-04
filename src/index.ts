@@ -32,7 +32,9 @@ import type { PiPrettyDeps, SdkTools } from "./types.js";
 import {
 	createThinkingLabelAnimator,
 	createThinkingTimer,
+	installPerRowThinkingLabels,
 	installWorkingIndicator,
+	type PerRowThinkingLabels,
 	resolveThinkingIndicatorSettings,
 	resolveWorkingIndicatorSettings,
 	type ThinkingTimer,
@@ -170,7 +172,14 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	let workingSessionName: string | undefined;
 	let workingStreaming = false;
 	let workingStatsUpdatedAt = 0;
+	let perRowLabels: PerRowThinkingLabels | undefined;
 	const TOKEN_COUNT_FORMAT = new Intl.NumberFormat("en-US");
+
+	/** Message timestamps are the per-row identity the label patch keys on. */
+	const messageTimestamp = (message: unknown): number | undefined => {
+		const ts = (message as { timestamp?: unknown } | undefined)?.timestamp;
+		return typeof ts === "number" ? ts : undefined;
+	};
 
 	/** pi persists the thinking-visibility toggle as a top-level settings key. */
 	const thinkingHidden = (): boolean => {
@@ -233,6 +242,15 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
 		if (ctx.mode === "tui") {
 			ctx.ui.setToolsExpanded(false);
+			// Per-row hidden-thinking labels: intercept the host's label fan-out so
+			// each row keeps its own duration. Falls back to the global-label
+			// behavior whenever the host class is missing or reshaped.
+			perRowLabels = thinkingSettings.enabled
+				? installPerRowThinkingLabels(
+						deps?.assistantMessageComponent ??
+							(hostSdk as { AssistantMessageComponent?: unknown }).AssistantMessageComponent,
+					)
+				: undefined;
 			workingSessionName = safeSessionName(ctx);
 			await installIndicator(ctx);
 		}
@@ -298,6 +316,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 
 	const stopThinkingShimmer = (): void => {
 		clearThinkingInterval();
+		perRowLabels?.clearActive();
 		try {
 			thinkingTimer?.restore();
 		} catch {
@@ -310,7 +329,12 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 
 	const completeThinkingShimmer = (): void => {
 		clearThinkingInterval();
-		thinkingTimer?.complete();
+		const ts = messageTimestamp(thinkingLastMessage);
+		const frozen = thinkingTimer?.complete();
+		if (ts !== undefined && frozen) perRowLabels?.complete(ts, frozen);
+		// The completed row is no longer the animating one — drop the active mark
+		// so subsequent global writes freeze it at its own duration.
+		perRowLabels?.clearActive();
 		thinkingLastMessage = undefined;
 	};
 
@@ -337,6 +361,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 			if (!thinkingHidden()) return; // thinking visible: no label writes at all
 			const animator = createThinkingLabelAnimator(ctx.ui, workingSettings, workingSessionName, thinkingSettings);
 			thinkingTimer = createThinkingTimer(animator);
+			const activeTs = messageTimestamp(thinkingLastMessage);
+			if (activeTs !== undefined) perRowLabels?.setActive(activeTs);
 			thinkingTimer.tick();
 			thinkingInterval = setInterval(() => {
 				try {
@@ -414,6 +440,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		workingController?.dispose();
 		workingController = undefined;
 		stopThinkingShimmer();
+		perRowLabels?.uninstall();
+		perRowLabels = undefined;
 		workingStreaming = false;
 		// Intentionally keep the native FFF finder on session shutdown.
 		// Pi can emit shutdown/start during resume or session switching while the

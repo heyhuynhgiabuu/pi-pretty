@@ -493,6 +493,84 @@ export interface ThinkingUiLike {
 	setHiddenThinkingLabel(label?: string): void;
 }
 
+// ─── Per-row hidden-thinking labels ──────────────────────────────────────────
+
+/** Controller for the host-component label interception. */
+export interface PerRowThinkingLabels {
+	/** Mark the message currently streaming a thinking block (its row animates). */
+	setActive(timestamp: number): void;
+	/** Freeze a message's completed thinking duration (its row keeps it). */
+	complete(timestamp: number, label: string): void;
+	/** Drop the active mark (run ended); completed rows keep their durations. */
+	clearActive(): void;
+	/** Restore the original prototype setter. */
+	uninstall(): void;
+}
+
+const PER_ROW_PATCH = Symbol.for("pi-pretty.per-row-thinking-labels");
+
+interface RowInternals {
+	lastMessage?: { timestamp?: unknown };
+}
+
+/**
+ * Intercept the host's per-row label fan-out method
+ * (`AssistantMessageComponent.prototype.setHiddenThinkingLabel`): each row
+ * substitutes the incoming global label with its own — the streaming row
+ * animates, completed rows stay frozen at their own `Thought for Xs`, unknown
+ * rows fall back to pi's default. Any per-call failure passes the incoming
+ * label through unchanged, so a host internals change degrades to pi-pretty's
+ * global-label behavior instead of breaking. Durations live per session.
+ */
+export function installPerRowThinkingLabels(componentClass: unknown): PerRowThinkingLabels | undefined {
+	const proto = (componentClass as { prototype?: { setHiddenThinkingLabel?: unknown } } | undefined)?.prototype;
+	const original = proto?.setHiddenThinkingLabel;
+	if (typeof componentClass !== "function" || !proto || typeof original !== "function") return undefined;
+	const existing = (original as { [PER_ROW_PATCH]?: PerRowThinkingLabels })[PER_ROW_PATCH];
+	// Reuse the installed patch but start from clean state: a session_start
+	// without an intervening shutdown (defensive) must not resurrect stale rows.
+	if (existing) {
+		existing.clearActive();
+		return existing;
+	}
+
+	const state: { activeTs?: number; completed: Map<number, string> } = { completed: new Map() };
+	const patched = function (this: unknown, label: string | undefined): void {
+		const own = ownLabel(this, label);
+		(original as (this: unknown, label: string | undefined) => void).call(this, own);
+	};
+	const ownLabel = (component: unknown, incoming: string | undefined): string | undefined => {
+		try {
+			const ts = (component as RowInternals | undefined)?.lastMessage?.timestamp;
+			if (typeof ts !== "number") return incoming;
+			if (ts === state.activeTs) return incoming;
+			return state.completed.get(ts) ?? THINKING_LABEL;
+		} catch {
+			return incoming;
+		}
+	};
+	(patched as { [PER_ROW_PATCH]?: PerRowThinkingLabels })[PER_ROW_PATCH] = {
+		setActive(timestamp: number): void {
+			state.activeTs = timestamp;
+		},
+		complete(timestamp: number, label: string): void {
+			state.completed.set(timestamp, label);
+		},
+		clearActive(): void {
+			state.activeTs = undefined;
+		},
+		uninstall(): void {
+			if (proto.setHiddenThinkingLabel === patched) {
+				proto.setHiddenThinkingLabel = original as { setHiddenThinkingLabel?: unknown }["setHiddenThinkingLabel"];
+			}
+			state.completed.clear();
+			state.activeTs = undefined;
+		},
+	};
+	proto.setHiddenThinkingLabel = patched as NonNullable<{ setHiddenThinkingLabel?: unknown }["setHiddenThinkingLabel"]>;
+	return (patched as { [PER_ROW_PATCH]?: PerRowThinkingLabels })[PER_ROW_PATCH];
+}
+
 export interface ThinkingLabelAnimator {
 	/** Apply the next shimmer frame, rebuilding frames when the label changes. */
 	tick(label?: string): void;
@@ -507,8 +585,9 @@ export interface ThinkingLabelAnimator {
 export interface ThinkingTimer {
 	/** Render the active label with the current elapsed duration. */
 	tick(): void;
-	/** Freeze the elapsed duration as the completed label. */
-	complete(): void;
+	/** Freeze the elapsed duration; returns the frozen label, or undefined when
+	 * the timer was already terminal. */
+	complete(): string | undefined;
 	/** Restore pi's default label and make the timer terminal. */
 	restore(): void;
 }
@@ -541,10 +620,12 @@ export function createThinkingTimer(animator: ThinkingLabelAnimator, now: () => 
 			if (terminal) return;
 			animator.tick(`${THINKING_LABEL} ${duration()}`);
 		},
-		complete(): void {
-			if (terminal) return;
+		complete(): string | undefined {
+			if (terminal) return undefined;
 			terminal = true;
-			animator.show(`Thought for ${duration()}`);
+			const label = `Thought for ${duration()}`;
+			animator.show(label);
+			return label;
 		},
 		restore(): void {
 			terminal = true;

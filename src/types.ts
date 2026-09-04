@@ -187,4 +187,8 @@ export interface PiPrettyDeps {
 	sdk?: SdkTools;
 	TextComponent?: new (text?: string, x?: number, y?: number) => ComponentLike;
 	fffModule?: typeof import("@ff-labs/fff-node");
+	/** Host AssistantMessageComponent class for the per-row label patch; defaults
+	 * to the package export. Injectable so tests can verify against the exact
+	 * class instance they construct rows from. */
+	assistantMessageComponent?: unknown;
 }

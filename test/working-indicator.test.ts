@@ -737,6 +737,105 @@ describe("thinking elapsed timer", () => {
 	});
 });
 
+describe("per-row hidden-thinking labels", () => {
+	class FakeRow {
+		label: string | undefined;
+		lastMessage: { timestamp: number } | undefined;
+		setHiddenThinkingLabel(label?: string): void {
+			this.label = label;
+		}
+	}
+
+	it("substitutes each row's own label: active animates, completed freezes, unknown defaults", async () => {
+		const { installPerRowThinkingLabels } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const rows = [new FakeRow(), new FakeRow(), new FakeRow()];
+		rows[0].lastMessage = { timestamp: 1 };
+		rows[1].lastMessage = { timestamp: 2 };
+		rows[2].lastMessage = { timestamp: 3 };
+		const perRow = installPerRowThinkingLabels(FakeRow);
+		expect(perRow).toBeDefined();
+		perRow!.complete(2, "Thought for 4s");
+		perRow!.setActive(1);
+		for (const row of rows) row.setHiddenThinkingLabel("frameX");
+		expect(rows[0].label).toBe("frameX"); // streaming row keeps the animating frame
+		expect(rows[1].label).toBe("Thought for 4s"); // completed row keeps its own duration
+		expect(rows[2].label).toBe("Thinking..."); // unknown row gets the default
+		perRow!.uninstall();
+	});
+
+	it("passes the incoming label through when the row has no usable timestamp", async () => {
+		const { installPerRowThinkingLabels } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		class BadRow {
+			label: string | undefined;
+		lastMessage: unknown;
+		setHiddenThinkingLabel(label?: string): void {
+			this.label = label;
+		}
+		}
+		const perRow = installPerRowThinkingLabels(BadRow)!;
+		const row = new BadRow();
+		row.setHiddenThinkingLabel("frameX");
+		expect(row.label).toBe("frameX"); // no lastMessage
+		row.lastMessage = { timestamp: "not-a-number" };
+		row.setHiddenThinkingLabel("frameY");
+		expect(row.label).toBe("frameY"); // non-number timestamp
+		perRow.uninstall();
+	});
+
+	it("transitions: active row completes and freezes; a new active row takes over", async () => {
+		const { installPerRowThinkingLabels } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const row1 = new FakeRow();
+		const row2 = new FakeRow();
+		row1.lastMessage = { timestamp: 1 };
+		row2.lastMessage = { timestamp: 2 };
+		const perRow = installPerRowThinkingLabels(FakeRow)!;
+		perRow.setActive(1);
+		row1.setHiddenThinkingLabel("f1");
+		row2.setHiddenThinkingLabel("f1");
+		expect(row1.label).toBe("f1");
+		expect(row2.label).toBe("Thinking...");
+		perRow.complete(1, "Thought for 3s");
+		perRow.setActive(2);
+		row1.setHiddenThinkingLabel("f2");
+		row2.setHiddenThinkingLabel("f2");
+		expect(row1.label).toBe("Thought for 3s");
+		expect(row2.label).toBe("f2");
+		perRow.clearActive();
+		row2.setHiddenThinkingLabel("f3");
+		expect(row2.label).toBe("Thinking...");
+		perRow.uninstall();
+	});
+
+	it("uninstall restores the original setter and double install reuses the controller", async () => {
+		const { installPerRowThinkingLabels } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const row = new FakeRow();
+		row.lastMessage = { timestamp: 1 };
+		const first = installPerRowThinkingLabels(FakeRow)!;
+		expect(installPerRowThinkingLabels(FakeRow)).toBe(first);
+		first.uninstall();
+		expect(installPerRowThinkingLabels(FakeRow)).not.toBe(first);
+		const second = installPerRowThinkingLabels(FakeRow)!;
+		second.complete(1, "Thought for 9s");
+		row.setHiddenThinkingLabel("frameX");
+		expect(row.label).toBe("Thought for 9s");
+		second.uninstall();
+		row.setHiddenThinkingLabel("plain");
+		expect(row.label).toBe("plain");
+	});
+
+	it("returns undefined for unusable component classes", async () => {
+		const { installPerRowThinkingLabels } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		expect(installPerRowThinkingLabels(undefined)).toBeUndefined();
+		expect(installPerRowThinkingLabels("nope")).toBeUndefined();
+		expect(installPerRowThinkingLabels(function noSetter() {})).toBeUndefined();
+	});
+});
+
 describe("createThinkingLabelAnimator", () => {
 	function makeUi() {
 		const labels: Array<string | undefined> = [];
