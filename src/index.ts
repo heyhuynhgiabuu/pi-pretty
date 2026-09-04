@@ -15,6 +15,7 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
+	MessageEndEvent,
 	MessageUpdateEvent,
 	SessionInfoChangedEvent,
 } from "@earendil-works/pi-coding-agent";
@@ -30,13 +31,15 @@ import { registerReadTool } from "./tools/read.js";
 import type { PiPrettyDeps, SdkTools } from "./types.js";
 import {
 	createThinkingLabelAnimator,
+	createThinkingTimer,
 	installWorkingIndicator,
 	resolveThinkingIndicatorSettings,
 	resolveWorkingIndicatorSettings,
-	type ThinkingLabelAnimator,
+	type ThinkingTimer,
 	thinkingBlockActive,
 	WORKING_INTERVAL_MS,
 	type WorkingIndicatorController,
+	workingTokens,
 } from "./working-indicator.js";
 
 // ---------------------------------------------------------------------------
@@ -160,13 +163,14 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	const workingSettings = resolveWorkingIndicatorSettings(config.workingIndicator);
 	const thinkingSettings = resolveThinkingIndicatorSettings(config.thinkingIndicator);
 	let workingController: WorkingIndicatorController | undefined;
-	let thinkingAnimator: ThinkingLabelAnimator | undefined;
+	let thinkingTimer: ThinkingTimer | undefined;
 	let thinkingInterval: ReturnType<typeof setInterval> | undefined;
 	let thinkingLastMessage: unknown;
-	let thinkingHiddenCache = true;
 	let thinkingHiddenCheckedAt = 0;
 	let workingSessionName: string | undefined;
 	let workingStreaming = false;
+	let workingStatsUpdatedAt = 0;
+	const TOKEN_COUNT_FORMAT = new Intl.NumberFormat("en-US");
 
 	/** pi persists the thinking-visibility toggle as a top-level settings key. */
 	const thinkingHidden = (): boolean => {
@@ -180,6 +184,17 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		} catch {
 			return false;
 		}
+	};
+
+	/**
+	 * True when the 500ms-cached hidden check is stale and settings now show
+	 * thinking revealed — the single re-check shared by the ticker and the
+	 * completed-phase message_update path (timestamp guard runs before the read).
+	 */
+	const thinkingRevealed = (): boolean => {
+		if (Date.now() - thinkingHiddenCheckedAt <= 500) return false;
+		thinkingHiddenCheckedAt = Date.now();
+		return !thinkingHidden();
 	};
 
 	const safeSessionName = (ctx: ExtensionContext): string | undefined => {
@@ -262,6 +277,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	pi.on("agent_start", async (_event: unknown, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
 		workingStreaming = true;
+		workingStatsUpdatedAt = 0;
+		workingController?.setStats(undefined);
 		workingController?.start();
 	});
 	const stopStreaming = async (_event: unknown, ctx: ExtensionContext): Promise<void> => {
@@ -273,69 +290,122 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	pi.on("agent_end", stopStreaming);
 	pi.on("agent_settled", stopStreaming);
 
+	const clearThinkingInterval = (): void => {
+		if (!thinkingInterval) return;
+		clearInterval(thinkingInterval);
+		thinkingInterval = undefined;
+	};
+
 	const stopThinkingShimmer = (): void => {
-		if (thinkingInterval) {
-			clearInterval(thinkingInterval);
-			thinkingInterval = undefined;
+		clearThinkingInterval();
+		try {
+			thinkingTimer?.restore();
+		} catch {
+			// Teardown must never throw — a host that explodes on restore is left
+			// with whatever label it has; the interval is already gone.
 		}
-		thinkingAnimator?.restore();
-		thinkingAnimator = undefined;
+		thinkingTimer = undefined;
 		thinkingLastMessage = undefined;
+	};
+
+	const completeThinkingShimmer = (): void => {
+		clearThinkingInterval();
+		thinkingTimer?.complete();
+		thinkingLastMessage = undefined;
+	};
+
+	/** Surface one warning without letting a throwing host escape the crash guard. */
+	const notifyThinkingFailure = (ctx: ExtensionContext, error: unknown): void => {
+		try {
+			ctx.ui?.notify?.(
+				`pi-pretty thinking indicator failed: ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
+		} catch {
+			// A host that throws on notify too must not crash the timer path.
+		}
 	};
 
 	// Same 30fps cadence as the working row — but the interval lives ONLY while
 	// the streaming message is actively emitting a thinking block (each label
 	// change rebuilds chat children, so the moment text or tool calls stream the
-	// shimmer stops and pi's default label is restored).
+	// label freezes as `Thought for {duration}` until the run ends).
 	const startThinkingShimmer = (ctx: ExtensionContext): void => {
 		if (thinkingInterval || !thinkingSettings.enabled) return;
 		try {
-			thinkingAnimator = createThinkingLabelAnimator(ctx.ui, workingSettings, workingSessionName, thinkingSettings);
-			thinkingHiddenCache = thinkingHidden();
 			thinkingHiddenCheckedAt = Date.now();
-			if (!thinkingHiddenCache) {
-				stopThinkingShimmer();
-				return;
-			}
-			thinkingAnimator.tick();
+			if (!thinkingHidden()) return; // thinking visible: no label writes at all
+			const animator = createThinkingLabelAnimator(ctx.ui, workingSettings, workingSessionName, thinkingSettings);
+			thinkingTimer = createThinkingTimer(animator);
+			thinkingTimer.tick();
 			thinkingInterval = setInterval(() => {
-				if (!workingStreaming) {
-					stopThinkingShimmer();
-					return;
-				}
-				const now = Date.now();
-				if (now - thinkingHiddenCheckedAt > 500) {
-					thinkingHiddenCache = thinkingHidden();
-					thinkingHiddenCheckedAt = now;
-					if (!thinkingHiddenCache) {
+				try {
+					if (!workingStreaming) {
 						stopThinkingShimmer();
 						return;
 					}
-				}
-				if (!thinkingBlockActive(thinkingLastMessage)) {
-					// Thinking phase over: restore pi's default label and stop.
+					if (thinkingRevealed()) {
+						stopThinkingShimmer();
+						return;
+					}
+					if (!thinkingBlockActive(thinkingLastMessage)) {
+						// Thinking phase over: freeze its duration until the run ends.
+						completeThinkingShimmer();
+						return;
+					}
+					thinkingTimer?.tick();
+					// The label has no widget of its own — reuse the working widget's
+					// TUI handle so the frame lands even when deltas pause mid-thinking.
+					workingController?.requestRender();
+				} catch (error: unknown) {
+					// A throwing host call inside our timer would crash pi (uncaught in
+					// setInterval) — tear the label down and surface one warning instead.
 					stopThinkingShimmer();
-					return;
+					notifyThinkingFailure(ctx, error);
 				}
-				thinkingAnimator?.tick();
 			}, WORKING_INTERVAL_MS);
 		} catch (error: unknown) {
 			stopThinkingShimmer();
-			ctx.ui?.notify?.(
-				`pi-pretty thinking indicator failed: ${error instanceof Error ? error.message : String(error)}`,
-				"warning",
-			);
+			notifyThinkingFailure(ctx, error);
 		}
 	};
 
 	// Remember the streaming message; lazily start the shimmer on the first
-	// thinking delta (thinkingHidden() is re-checked at most every 500ms).
+	// thinking delta (thinkingHidden() is re-checked at most every 500ms). After
+	// the phase completes, deltas keep refreshing the visibility cache so a
+	// mid-run `hideThinkingBlock` toggle-off restores the default label.
 	pi.on("message_update", async (event: MessageUpdateEvent, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui" || !workingStreaming) return;
 		thinkingLastMessage = event.message;
-		if (thinkingInterval) return;
-		if (!thinkingBlockActive(event.message)) return;
-		startThinkingShimmer(ctx);
+		// Live token suffix on the working row (throttled to one update/second).
+		const now = Date.now();
+		if (now - workingStatsUpdatedAt >= 1000) {
+			workingStatsUpdatedAt = now;
+			const tokens = workingTokens(event.message);
+			workingController?.setStats(tokens > 0 ? ` (↓ ${TOKEN_COUNT_FORMAT.format(tokens)} tokens)` : undefined);
+		}
+		if (thinkingInterval) {
+			// Complete immediately on the first text/tool delta instead of waiting
+			// for the next animation frame.
+			if (!thinkingBlockActive(event.message)) completeThinkingShimmer();
+			return;
+		}
+		if (thinkingBlockActive(event.message)) {
+			// First thinking delta — or a later phase after tool calls — starts a
+			// fresh timer (the completed one is replaced wholesale).
+			startThinkingShimmer(ctx);
+			return;
+		}
+		if (thinkingTimer && thinkingRevealed()) stopThinkingShimmer();
+	});
+
+	// The completed wording belongs to the message that produced it. The label
+	// is global, so once that assistant message ends, restore pi's default —
+	// otherwise every later phase stamps its frozen duration onto every hidden
+	// thinking row in the transcript (the image-read "Thought for 5s" stack).
+	pi.on("message_end", async (event: MessageEndEvent, ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui" || event.message.role !== "assistant") return;
+		if (thinkingInterval || thinkingTimer) stopThinkingShimmer();
 	});
 
 	pi.on("session_shutdown", async () => {

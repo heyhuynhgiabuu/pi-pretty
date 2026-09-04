@@ -366,6 +366,22 @@ export function buildWorkingFrames(
 	return { frames, intervalMs };
 }
 
+/** Estimate streamed output tokens: provider `usage.output` when exposed, else visible chars ÷ 4. */
+export function workingTokens(message: unknown): number {
+	const usage = (message as { usage?: { output?: unknown } } | undefined)?.usage;
+	const output = Number(usage?.output);
+	if (Number.isFinite(output) && output > 0) return Math.round(output);
+	const content = (message as { content?: Array<{ type?: string; text?: unknown; thinking?: unknown }> } | undefined)
+		?.content;
+	if (!Array.isArray(content)) return 0;
+	let chars = 0;
+	for (const block of content) {
+		if (block?.type === "text" && typeof block.text === "string") chars += block.text.length;
+		else if (block?.type === "thinking" && typeof block.thinking === "string") chars += block.thinking.length;
+	}
+	return Math.round(chars / 4);
+}
+
 // ─── Widget ──────────────────────────────────────────────────────────────────
 
 /** Slice of the pi-tui TUI instance the widget needs. */
@@ -386,6 +402,7 @@ export class WorkingWidget {
 	#tui: WidgetTuiLike | undefined;
 	#started = false;
 	#disposed = false;
+	#stats: string | undefined;
 
 	setFrames(frames: string[], intervalMs: number): void {
 		this.#frames = frames;
@@ -395,6 +412,19 @@ export class WorkingWidget {
 
 	attach(tui: WidgetTuiLike): void {
 		this.#tui = tui;
+	}
+
+	/** Ask the host for a render — lets non-widget consumers (the thinking label
+	 * ticker) reuse this widget's TUI handle instead of relying on natural
+	 * streaming renders. */
+	requestRender(): void {
+		this.#tui?.requestRender();
+	}
+
+	/** Dynamic right-side status segment (e.g. live token count), styled dim at
+	 * render time so theme changes don't bake stale ANSI into it. */
+	setStats(text: string | undefined): void {
+		this.#stats = text || undefined;
 	}
 
 	start(): void {
@@ -421,7 +451,8 @@ export class WorkingWidget {
 	render(width: number): string[] {
 		if (!this.#started || this.#frames.length === 0) return [];
 		const frame = this.#frames[this.#index % this.#frames.length] ?? "";
-		return [truncateToWidth(frame, Math.max(1, width))];
+		const suffix = this.#stats ? `${FG_DIM}${this.#stats}${RESET_FG}` : "";
+		return [truncateToWidth(frame + suffix, Math.max(1, width))];
 	}
 
 	invalidate(): void {
@@ -463,15 +494,64 @@ export interface ThinkingUiLike {
 }
 
 export interface ThinkingLabelAnimator {
-	/** Apply the next shimmer frame to the hidden-thinking label. */
-	tick(): void;
+	/** Apply the next shimmer frame, rebuilding frames when the label changes. */
+	tick(label?: string): void;
+	/** Apply a non-animated label (the host supplies its normal thinking style). */
+	show(label: string): void;
 	/** Restore pi's default static label. */
 	restore(): void;
-	/** Pre-rendered label frames (exposed for diagnostics). */
+	/** Current pre-rendered label frames (exposed for diagnostics). */
 	readonly frames: readonly string[];
 }
 
+export interface ThinkingTimer {
+	/** Render the active label with the current elapsed duration. */
+	tick(): void;
+	/** Freeze the elapsed duration as the completed label. */
+	complete(): void;
+	/** Restore pi's default label and make the timer terminal. */
+	restore(): void;
+}
+
 const THINKING_LABEL = "Thinking...";
+
+/** Format elapsed milliseconds as whole seconds with compact padded units. */
+export function formatThinkingDuration(elapsedMs: number): string {
+	const totalSeconds = Math.floor(elapsedMs / 1000);
+	const seconds = totalSeconds % 60;
+	const totalMinutes = Math.floor(totalSeconds / 60);
+	const minutes = totalMinutes % 60;
+	const hours = Math.floor(totalMinutes / 60);
+	if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+	if (totalMinutes > 0) return `${totalMinutes}m ${String(seconds).padStart(2, "0")}s`;
+	return `${seconds}s`;
+}
+
+/**
+ * Couple elapsed-time wording to the label animator through an injected clock.
+ * The timer starts on the first thinking delta, freezes once, and is terminal
+ * after completion or restore.
+ */
+export function createThinkingTimer(animator: ThinkingLabelAnimator, now: () => number = Date.now): ThinkingTimer {
+	const startedAt = now();
+	let terminal = false;
+	const duration = (): string => formatThinkingDuration(now() - startedAt);
+	return {
+		tick(): void {
+			if (terminal) return;
+			animator.tick(`${THINKING_LABEL} ${duration()}`);
+		},
+		complete(): void {
+			if (terminal) return;
+			terminal = true;
+			animator.show(`Thought for ${duration()}`);
+		},
+		restore(): void {
+			terminal = true;
+			animator.restore();
+		},
+	};
+}
 
 /**
  * True while a streaming assistant message is currently emitting a thinking
@@ -489,9 +569,9 @@ export function thinkingBlockActive(message: unknown): boolean {
  * Animate pi's hidden-thinking label ("Thinking...") with the same shimmer as
  * the working row. Pi renders the label as static italic `thinkingText` text;
  * the only extension lever is `setHiddenThinkingLabel(label)`, which rebuilds
- * chat children — the streaming component already rebuilds per delta, so the
- * animator is driven at a throttled cadence (100ms) from index.ts while the
- * agent streams and thinking blocks are hidden.
+ * chat children, so index.ts drives it at 30fps only while the streaming
+ * message's last block is thinking. The elapsed label is rebuilt only when its
+ * whole-second text changes; the shimmer frame still advances every tick.
  *
  * Tiers: low = theme `thinkingText` (pi's own label look), mid/high = session
  * accent when enabled; every frame is italic like pi's label; no spinner.
@@ -504,6 +584,7 @@ export function createThinkingLabelAnimator(
 ): ThinkingLabelAnimator {
 	const noop: ThinkingLabelAnimator = {
 		tick() {},
+		show() {},
 		restore() {},
 		frames: [],
 	};
@@ -519,25 +600,37 @@ export function createThinkingLabelAnimator(
 		const accent = hexToAnsiFg(sessionAccentHex(sessionName));
 		if (accent) ansi = { ...ansi, mid: accent, high: accent };
 	}
-	const { frames } = buildWorkingFrames([THINKING_LABEL], {
-		mode: workSettings.mode,
-		ansi,
-		bold: workSettings.bold,
-		spinner: false,
-		italic: true,
-	});
-	if (frames.length === 0) return noop;
+	const buildLabelFrames = (label: string): string[] =>
+		buildWorkingFrames([label], {
+			mode: workSettings.mode,
+			ansi,
+			bold: workSettings.bold,
+			spinner: false,
+			italic: true,
+		}).frames;
+
+	let currentLabel = THINKING_LABEL;
+	let frames = buildLabelFrames(currentLabel);
 
 	let index = 0;
-	let applied = false;
+	let appliedLabel: string | undefined;
 	return {
-		frames,
-		tick(): void {
-			// A single frame (static mode) never changes — skip redundant rebuilds.
-			if (applied && frames.length === 1) return;
+		get frames(): readonly string[] {
+			return frames;
+		},
+		tick(label = THINKING_LABEL): void {
+			if (label !== currentLabel) {
+				frames = buildLabelFrames(label);
+				currentLabel = label;
+			}
+			// A static frame changes only when its elapsed-time label changes.
+			if (appliedLabel === currentLabel && frames.length === 1) return;
 			ui.setHiddenThinkingLabel(frames[index % frames.length]);
 			index++;
-			applied = true;
+			appliedLabel = currentLabel;
+		},
+		show(label: string): void {
+			ui.setHiddenThinkingLabel(label);
 		},
 		restore(): void {
 			// undefined → pi falls back to its default static label.
@@ -576,6 +669,10 @@ export interface WorkingIndicatorController {
 	stop(): void;
 	/** Remove the widget and stop the animation. */
 	dispose(): void;
+	/** Update the dim right-side status segment (live token count). */
+	setStats(text: string | undefined): void;
+	/** Request a host render via the widget's TUI handle. */
+	requestRender(): void;
 	/** Pre-rendered frames (exposed for diagnostics). */
 	readonly frames: readonly string[];
 }
@@ -639,6 +736,8 @@ export async function installWorkingIndicator(
 		start() {},
 		stop() {},
 		dispose() {},
+		setStats() {},
+		requestRender() {},
 		frames: [],
 	};
 	if (!settings.enabled) return noopController;
@@ -686,6 +785,8 @@ export async function installWorkingIndicator(
 			widget.dispose();
 			ui.setWidget(WIDGET_KEY, undefined);
 		},
+		setStats: (text: string | undefined) => widget.setStats(text),
+		requestRender: () => widget.requestRender(),
 		frames,
 	};
 }

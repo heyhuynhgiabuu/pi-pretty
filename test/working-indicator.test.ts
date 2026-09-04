@@ -268,6 +268,37 @@ describe("WorkingWidget", () => {
 		vi.advanceTimersByTime(330);
 		expect(renders).toHaveLength(0);
 	});
+
+	it("exposes requestRender through the attached tui", async () => {
+		const { WorkingWidget } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const widget = new WorkingWidget();
+		const tuiCalls: number[] = [];
+		widget.attach({ requestRender: () => void tuiCalls.push(1) });
+		widget.requestRender();
+		expect(tuiCalls).toHaveLength(1);
+		// No tui attached → still safe
+		const bare = new WorkingWidget();
+		expect(() => bare.requestRender()).not.toThrow();
+	});
+
+	it("appends the dim stats suffix after the frame, truncated to width", async () => {
+		const { WorkingWidget } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const widget = new WorkingWidget();
+		widget.setFrames([`${H}Working…${RESET}`], 33);
+		widget.start();
+		expect(widget.render(80)).toEqual([`${H}Working…${RESET}`]);
+		widget.setStats(" (↓ 1,234 tokens)");
+		const line = widget.render(80)[0] ?? "";
+		expect(stripAnsi(line)).toBe("Working… (↓ 1,234 tokens)");
+		expect(line).toContain("\u001b[38;2;80;80;80m"); // dim styling from the widget
+		// Narrow viewport truncates the combined line, never overflows
+		const narrow = widget.render(8)[0] ?? "";
+		expect(stripAnsi(narrow).length).toBeLessThanOrEqual(8);
+		widget.setStats(undefined);
+		expect(widget.render(80)).toEqual([`${H}Working…${RESET}`]);
+	});
 });
 
 describe("resolveWorkingIndicatorSettings", () => {
@@ -457,6 +488,25 @@ describe("installWorkingIndicator", () => {
 		expect(component.render(80)).toEqual([]);
 	});
 
+	it("controller exposes setStats and requestRender passthroughs", async () => {
+		vi.useFakeTimers();
+		const { installWorkingIndicator, WORKING_INDICATOR_DEFAULTS } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const { ui, widgets } = makeUi();
+		const controller = await installWorkingIndicator(ui, WORKING_INDICATOR_DEFAULTS, {
+			getKeybindings: () => ({ getKeys: () => ["ctrl+esc"] }),
+		});
+		const tuiRenders: number[] = [];
+		const component = widgets[0].factory?.({ requestRender: () => void tuiRenders.push(1) }, undefined) as {
+			render(width: number): string[];
+		};
+		controller.start();
+		controller.requestRender();
+		expect(tuiRenders).toHaveLength(1);
+		controller.setStats(" (↓ 42 tokens)");
+		expect(stripAnsi(component.render(80)[0] ?? "")).toContain("(↓ 42 tokens)");
+	});
+
 	it("start/stop follow the streaming lifecycle idempotently", async () => {
 		vi.useFakeTimers();
 		const { installWorkingIndicator, WORKING_INDICATOR_DEFAULTS } =
@@ -614,6 +664,79 @@ describe("resolveThinkingIndicatorSettings", () => {
 	});
 });
 
+describe("working row token stats", () => {
+	it("estimates tokens from visible chars and prefers provider usage.output", async () => {
+		const module = (await freshModule("../src/working-indicator.js")) as Record<string, unknown>;
+		const workingTokens = module.workingTokens as (message: unknown) => number;
+		// 200 visible chars → 50 estimated tokens
+		expect(
+			workingTokens({
+				content: [
+				{ type: "text", text: "a".repeat(120) },
+			{ type: "thinking", thinking: "b".repeat(80) },
+			],
+			}),
+		).toBe(50);
+		// Provider output wins over the estimate
+		expect(workingTokens({ content: [{ type: "text", text: "x".repeat(400) }], usage: { output: 1234 } })).toBe(1234);
+		// Invalid/zero usage falls back to the estimate
+		expect(workingTokens({ content: [{ type: "text", text: "x".repeat(400) }], usage: { output: 0 } })).toBe(100);
+		expect(
+			workingTokens({ content: [{ type: "text", text: "x".repeat(400) }], usage: { output: Number.NaN } }),
+		).toBe(100);
+		// Nothing visible yet
+		expect(workingTokens({ content: [] })).toBe(0);
+		expect(workingTokens(undefined)).toBe(0);
+		expect(workingTokens({})).toBe(0);
+		// Non-string blocks ignored
+		expect(workingTokens({ content: [{ type: "text", text: 42 }, { type: "toolCall" }] })).toBe(0);
+	});
+});
+
+describe("thinking elapsed timer", () => {
+	it("formats whole-second durations compactly", async () => {
+		const module = (await freshModule("../src/working-indicator.js")) as Record<string, unknown>;
+		const formatThinkingDuration = module.formatThinkingDuration as (elapsedMs: number) => string;
+		expect(formatThinkingDuration(0)).toBe("0s");
+		expect(formatThinkingDuration(999)).toBe("0s");
+		expect(formatThinkingDuration(12_999)).toBe("12s");
+		expect(formatThinkingDuration(60_000)).toBe("1m 00s");
+		expect(formatThinkingDuration(3_723_999)).toBe("1h 02m 03s");
+	});
+
+	it("shows elapsed time while active, freezes the completion label, and restores on cleanup", async () => {
+		const module = (await freshModule("../src/working-indicator.js")) as Record<string, unknown>;
+		const createThinkingTimer = module.createThinkingTimer as (
+			animator: {
+				tick(label?: string): void;
+				show(label: string): void;
+				restore(): void;
+				readonly frames: readonly string[];
+			},
+			now: () => number,
+		) => { tick(): void; complete(): void; restore(): void };
+		const events: string[] = [];
+		const animator = {
+			frames: [],
+			tick: (label = "") => events.push(`tick:${label}`),
+			show: (label: string) => events.push(`show:${label}`),
+			restore: () => events.push("restore"),
+		};
+		let now = 1_000;
+		const timer = createThinkingTimer(animator, () => now);
+		timer.tick();
+		now = 13_999;
+		timer.tick();
+		timer.complete();
+		now = 99_000;
+		timer.tick(); // Completion is frozen; later ticks do nothing.
+		timer.restore();
+		timer.tick();
+		timer.complete();
+		expect(events).toEqual(["tick:Thinking... 0s", "tick:Thinking... 12s", "show:Thought for 12s", "restore"]);
+	});
+});
+
 describe("createThinkingLabelAnimator", () => {
 	function makeUi() {
 		const labels: Array<string | undefined> = [];
@@ -650,6 +773,18 @@ describe("createThinkingLabelAnimator", () => {
 		expect(labels[0].startsWith(`⠋`)).toBe(false);
 		animator.restore();
 		expect(labels[labels.length - 1]).toBeUndefined();
+	});
+
+	it("rebuilds shimmer frames for elapsed wording and applies completion wording without animation", async () => {
+		const { createThinkingLabelAnimator, WORKING_INDICATOR_DEFAULTS } =
+			await freshModule<typeof import("../src/working-indicator.js")>("../src/working-indicator.js");
+		const { ui, labels } = makeUi();
+		const animator = createThinkingLabelAnimator(ui, WORKING_INDICATOR_DEFAULTS);
+		animator.tick("Thinking... 7s");
+		expect(stripAnsi(labels.at(-1) ?? "")).toBe("Thinking... 7s");
+		expect(animator.frames.every((frame) => stripAnsi(frame) === "Thinking... 7s")).toBe(true);
+		animator.show("Thought for 7s");
+		expect(labels.at(-1)).toBe("Thought for 7s");
 	});
 
 	it("tints mid/high tiers with the session accent", async () => {

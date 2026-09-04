@@ -186,6 +186,10 @@ colors resolve `#rrggbb` hex first, then the active pi theme color name, then bu
 Set `workingIndicator.enabled: false` (or `PRETTY_WORKING_INDICATOR=off`) to restore pi's default
 indicator. TUI sessions only; theme changes take effect on the next session.
 
+While the agent streams, the row also shows a dim live token suffix — ` (↓ 1,234 tokens)` — refreshed
+once per second. The count uses the provider's `usage.output` when the stream exposes it, otherwise a
+visible-characters ÷ 4 estimate over text and thinking blocks.
+
 `text` accepts a single phrase or an array — the sweep plays each phrase in order, one full band
 sweep per phrase (e.g. `["Working…", "Thinking…", "Pondering…"]`). The env var splits on commas.
 
@@ -197,13 +201,18 @@ hues at uniform perceived brightness. Renaming the session re-tints the indicato
 
 ### Thinking label (shimmer)
 
-With thinking blocks hidden (pi's `hideThinkingBlock` setting), the static `Thinking...` label gets
-the same shimmer: italic `thinkingText` base with the accent band (and the session accent tint)
-sweeping through it. Pi renders that label as static text and the only extension lever is
-`setHiddenThinkingLabel(label)`, which rebuilds chat children — so the shimmer advances at a
-throttled 100ms cadence driven by natural streaming updates, and only while the agent is streaming
-and thinking blocks stay hidden. When the run ends, pi's default label is restored. Inherits
-`mode`, `bold`, and the palette/accent from `workingIndicator`.
+With thinking blocks hidden (pi's `hideThinkingBlock` setting), the label shows elapsed reasoning
+time (`Thinking... 12s`) under the same shimmer: italic `thinkingText` base with the accent band
+(and the session accent tint) sweeping through it. On the first text or tool delta it freezes as
+`Thought for 12s`, and when that assistant message ends pi's default `Thinking...` label is restored.
+Durations use whole seconds (`12s`, `1m 05s`, `1h 02m 03s`).
+
+Pi exposes only one global hidden-thinking label, not a per-message label — each label write
+rewrites every hidden thinking row in the transcript. Scoping the completed wording to its own
+message (instead of the whole run) keeps later phases from stamping their frozen duration onto
+older rows. The 30fps ticker runs only while the current message's last block is thinking, bounding
+the cost of `setHiddenThinkingLabel(label)` rebuilding chat children. Inherits `mode`, `bold`, and
+the palette/accent from `workingIndicator`.
 
 ### Environment variables
 
