@@ -94,6 +94,43 @@ description: Test skill rendering.
 
 Follow the workflow.`;
 
+describe("read title padding parity with other tools", () => {
+	const plainFile = "const a = 1;\nconst b = 2;\n";
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping SGR sequences from rendered output
+	const SGR = /[\u001b+\[[0-9;]*m/g;
+	const visible = (line: string): string => line.replace(SGR, "").trim();
+
+	it("collapsed: one blank line between the read title and the info line (like bash/grep/find)", async () => {
+		const rendered = await renderSkill(plainFile, false, "/tmp/project/src/index.ts");
+		const lines = rendered.getText().split("\n");
+		const titleIdx = lines.findIndex((l) => l.includes("→ read"));
+		const infoIdx = lines.findIndex((l) => l.includes("ctrl+o to expand"));
+		expect(titleIdx).toBeGreaterThanOrEqual(0);
+		expect(infoIdx).toBeGreaterThan(titleIdx);
+		expect(visible(lines[titleIdx + 1] ?? "")).toBe("");
+		expect(infoIdx).toBe(titleIdx + 2);
+	});
+
+	it("expanded: one blank line between the read title and the rule line", async () => {
+		const rendered = await renderSkill(plainFile, true, "/tmp/project/src/index.ts");
+		const lines = rendered.getText().split("\n");
+		const titleIdx = lines.findIndex((l) => l.includes("→ read"));
+		const ruleIdx = lines.findIndex((l, i) => i > titleIdx && l.includes("─"));
+		expect(titleIdx).toBeGreaterThanOrEqual(0);
+		expect(ruleIdx).toBeGreaterThan(titleIdx);
+		expect(visible(lines[titleIdx + 1] ?? "")).toBe("");
+		expect(ruleIdx).toBe(titleIdx + 2);
+	});
+
+	it("skill header keeps the same blank line below it when expanded", async () => {
+		const rendered = await renderSkill(skillContent, true);
+		const lines = rendered.getText().split("\n");
+		const titleIdx = lines.findIndex((l) => l.includes("[skill]"));
+		expect(titleIdx).toBeGreaterThanOrEqual(0);
+		expect(visible(lines[titleIdx + 1] ?? "")).toBe("");
+	});
+});
+
 describe("read skill presentation", () => {
 	it("renders a themed skill summary when collapsed", async () => {
 		const rendered = await renderSkill(skillContent, false);

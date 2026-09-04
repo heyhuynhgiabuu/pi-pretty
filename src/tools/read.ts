@@ -142,7 +142,7 @@ export function registerReadTool(
 					}
 					text.setText(
 						fillToolBackground(
-							`\n${TOOL_RESULT_INDENT}${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}\n${TOOL_RESULT_INDENT}${FG_DIM}${total} lines — ctrl+o to expand${RST}\n`,
+							`\n${TOOL_RESULT_INDENT}${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}\n\n${TOOL_RESULT_INDENT}${FG_DIM}${total} lines — ctrl+o to expand${RST}\n`,
 							BG_BASE,
 						),
 					);
@@ -157,7 +157,7 @@ export function registerReadTool(
 				const header = skillName
 					? renderSkillHeader(skillName, true, theme)
 					: `${theme.fg("toolTitle", theme.bold("→ read"))} ${theme.fg("toolTitle", p2)}${theme.fg("dim", off2)}`;
-				const out: string[] = ["", `${TOOL_RESULT_INDENT}${header}`];
+				const out: string[] = ["", `${TOOL_RESULT_INDENT}${header}`, ""];
 				out.push(`${TOOL_RESULT_INDENT}${FG_RULE}${"─".repeat(tw - 1)}${RST}`);
 				for (let i = 0; i < show.length; i++) {
 					const ln = (d.offset || 0) + i + 1;
