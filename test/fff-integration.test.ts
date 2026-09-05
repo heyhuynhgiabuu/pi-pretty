@@ -229,12 +229,13 @@ function mkFinder(overrides?: Record<string, any>) {
 }
 
 describe("piPrettyExtension integration", () => {
-	it("registers pretty tools when loaded from a managed package without a local SDK", async () => {
+	it.each(["dist/index.js", "src/index.ts"])("registers pretty tools from managed %s without a local SDK", async (entry) => {
 		const tempRoot = mkdtempSync(join(tmpdir(), "pi-pretty-managed-package-"));
 		const extensionRoot = join(tempRoot, "node_modules", "@heyhuynhgiabuu", "pi-pretty");
 		const extensionNodeModules = join(extensionRoot, "node_modules");
 
 		try {
+			cpSync(join(process.cwd(), "src"), join(extensionRoot, "src"), { recursive: true });
 			cpSync(join(process.cwd(), "dist"), join(extensionRoot, "dist"), {
 				recursive: true,
 				filter: (path) => !path.endsWith(".map"),
@@ -250,7 +251,7 @@ describe("piPrettyExtension integration", () => {
 			const { loadExtensions } = await import(
 				pathToFileURL(join(dirname(codingAgentEntry), "core", "extensions", "loader.js")).href
 			);
-			const result = await loadExtensions([join(extensionRoot, "dist", "index.js")], tempRoot);
+			const result = await loadExtensions([join(extensionRoot, entry)], tempRoot);
 
 			expect(result.errors).toEqual([]);
 			expect([...result.extensions[0]!.tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
