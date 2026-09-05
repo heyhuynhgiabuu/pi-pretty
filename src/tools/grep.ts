@@ -111,7 +111,7 @@ export function registerGrepTool(
 			if (limit !== undefined && limit !== null) out += theme.fg("dim", ` limit ${limit}`);
 			if (literal) out += theme.fg("dim", ` (literal)`);
 			if (caseInsensitive) out += theme.fg("dim", ` (case-insensitive)`);
-			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}\n`, ctx.isError ? BG_ERROR : undefined));
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}`, ctx.isError ? BG_ERROR : undefined));
 			return text;
 		},
 

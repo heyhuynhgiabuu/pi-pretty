@@ -94,40 +94,68 @@ description: Test skill rendering.
 
 Follow the workflow.`;
 
-describe("read title padding parity with other tools", () => {
+describe("read title adjacency (no blank row below the title)", () => {
 	const plainFile = "const a = 1;\nconst b = 2;\n";
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping SGR sequences from rendered output
 	const SGR = /[\u001b+\[[0-9;]*m/g;
 	const visible = (line: string): string => line.replace(SGR, "").trim();
 
-	it("collapsed: one blank line between the read title and the info line (like bash/grep/find)", async () => {
+	it("collapsed: the info line sits directly below the read title", async () => {
 		const rendered = await renderSkill(plainFile, false, "/tmp/project/src/index.ts");
 		const lines = rendered.getText().split("\n");
 		const titleIdx = lines.findIndex((l) => l.includes("→ read"));
 		const infoIdx = lines.findIndex((l) => l.includes("ctrl+o to expand"));
 		expect(titleIdx).toBeGreaterThanOrEqual(0);
-		expect(infoIdx).toBeGreaterThan(titleIdx);
-		expect(visible(lines[titleIdx + 1] ?? "")).toBe("");
-		expect(infoIdx).toBe(titleIdx + 2);
+		expect(infoIdx).toBe(titleIdx + 1);
+		expect(visible(lines[0] ?? "")).toBe(""); // top padding preserved
+		expect(visible(lines.at(-1) ?? "")).toBe(""); // footer spacing preserved
 	});
 
-	it("expanded: one blank line between the read title and the rule line", async () => {
+	it("expanded: the rule line sits directly below the read title", async () => {
 		const rendered = await renderSkill(plainFile, true, "/tmp/project/src/index.ts");
 		const lines = rendered.getText().split("\n");
 		const titleIdx = lines.findIndex((l) => l.includes("→ read"));
 		const ruleIdx = lines.findIndex((l, i) => i > titleIdx && l.includes("─"));
 		expect(titleIdx).toBeGreaterThanOrEqual(0);
-		expect(ruleIdx).toBeGreaterThan(titleIdx);
-		expect(visible(lines[titleIdx + 1] ?? "")).toBe("");
-		expect(ruleIdx).toBe(titleIdx + 2);
+		expect(ruleIdx).toBe(titleIdx + 1);
+		expect(visible(lines.at(-1) ?? "")).toBe(""); // footer spacing preserved
 	});
 
-	it("skill header keeps the same blank line below it when expanded", async () => {
+	it("collapsed skill header is the final row (no trailing blank)", async () => {
+		const rendered = await renderSkill(skillContent, false);
+		const lines = rendered.getText().split("\n");
+		expect(lines).toHaveLength(2);
+		expect(visible(lines[0] ?? "")).toBe(""); // top padding preserved
+		expect(visible(lines[1] ?? "")).toContain("[skill]");
+	});
+
+	it("expanded skill: the divider sits directly below the skill header", async () => {
 		const rendered = await renderSkill(skillContent, true);
 		const lines = rendered.getText().split("\n");
 		const titleIdx = lines.findIndex((l) => l.includes("[skill]"));
 		expect(titleIdx).toBeGreaterThanOrEqual(0);
-		expect(visible(lines[titleIdx + 1] ?? "")).toBe("");
+		expect(visible(lines[titleIdx + 1] ?? "")).toContain("─");
+		expect(visible(lines.at(-1) ?? "")).toBe(""); // footer spacing preserved
+	});
+
+	it("async highlight keeps the body directly below the plain-file title", async () => {
+		const rendered = await renderSkill(plainFile, true, "/tmp/project/src/index.ts");
+		await vi.waitFor(() => expect(rendered.getUpdateCount()).toBeGreaterThanOrEqual(2));
+		const lines = rendered.getText().split("\n");
+		const titleIdx = lines.findIndex((l) => l.includes("→ read"));
+		const bodyIdx = lines.findIndex((l, i) => i > titleIdx && l.includes("│"));
+		expect(titleIdx).toBeGreaterThanOrEqual(0);
+		expect(bodyIdx).toBe(titleIdx + 1);
+		expect(visible(lines.at(-1) ?? "")).toBe(""); // footer spacing preserved
+	});
+
+	it("async highlight keeps the divider directly below the skill header", async () => {
+		const rendered = await renderSkill(skillContent, true);
+		await vi.waitFor(() => expect(rendered.getUpdateCount()).toBeGreaterThanOrEqual(2));
+		const lines = rendered.getText().split("\n");
+		const titleIdx = lines.findIndex((l) => l.includes("[skill]"));
+		expect(titleIdx).toBeGreaterThanOrEqual(0);
+		expect(visible(lines[titleIdx + 1] ?? "")).toContain("─");
 	});
 });
 

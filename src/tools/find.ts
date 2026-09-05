@@ -150,7 +150,7 @@ export function registerFindTool(
 			const pathPart = theme.fg("toolOutput", pathArg);
 			const limitPart = limit !== undefined && limit !== null ? theme.fg("dim", ` limit ${limit}`) : "";
 			const out = `${findLabel} ${patternPart}${inPart}${pathPart}${limitPart}`;
-			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}\n`, ctx.isError ? BG_ERROR : undefined));
+			text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${out}`, ctx.isError ? BG_ERROR : undefined));
 			return text;
 		},
 
@@ -168,7 +168,7 @@ export function registerFindTool(
 					const noticeStr = d.notices?.length
 						? `\n${TOOL_RESULT_INDENT}${theme.fg("warning", `[${d.notices.join(". ")}]`)}`
 						: "";
-					text.setText(fillToolBackground(`\n${TOOL_RESULT_INDENT}${theme.fg("dim", "0 files")}${noticeStr}\n`));
+					text.setText(fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", "0 files")}${noticeStr}\n`));
 					return text;
 				}
 				if (!ctx.expanded) {
@@ -190,14 +190,14 @@ export function registerFindTool(
 				const duration = renderToolDuration(r);
 				text.setText(
 					fillToolBackground(
-						`\n${TOOL_RESULT_INDENT}${theme.fg("dim", `${d.matchCount} files`)}${duration ? `${FG_DIM}· ${duration}${RST}` : ""}\n${rendered}${noticeStr}\n`,
+						`${TOOL_RESULT_INDENT}${theme.fg("dim", `${d.matchCount} files`)}${duration ? `${FG_DIM}· ${duration}${RST}` : ""}\n${rendered}${noticeStr}\n`,
 					),
 				);
 				return text;
 			}
 			const fc = r.content?.[0] as TextContent | undefined;
 			text.setText(
-				fillToolBackground(`\n${TOOL_RESULT_INDENT}${theme.fg("dim", fc?.text?.slice(0, 120) ?? "0 files")}\n`),
+				fillToolBackground(`${TOOL_RESULT_INDENT}${theme.fg("dim", fc?.text?.slice(0, 120) ?? "0 files")}\n`),
 			);
 			return text;
 		},

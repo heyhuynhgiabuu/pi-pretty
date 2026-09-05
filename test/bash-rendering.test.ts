@@ -88,7 +88,7 @@ describe("bash renderCall expansion", () => {
 		process.stdout.columns = 100;
 	});
 
-	it("adds one bottom padding row to every tool header", () => {
+	it("ends every tool header at the title row (no blank row below the title)", () => {
 		const previousEnabledTools = process.env.PRETTY_ENABLE_TOOLS;
 		const previousDisabledTools = process.env.PRETTY_DISABLE_TOOLS;
 		process.env.PRETTY_ENABLE_TOOLS = "ls";
@@ -122,8 +122,9 @@ describe("bash renderCall expansion", () => {
 				invalidate: () => {},
 			});
 			const lines = stripAnsi(rendered.getText()).split("\n");
-			expect(lines.at(-1)?.trim(), name).toBe("");
-			expect(lines.at(-2)?.trim(), name).not.toBe("");
+			expect(lines).toHaveLength(2);
+			expect(lines[0]?.trim(), name).toBe("");
+			expect(lines[1]?.trim(), name).not.toBe("");
 		}
 	});
 
