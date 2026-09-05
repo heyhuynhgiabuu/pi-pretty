@@ -715,7 +715,7 @@ describe("thinking elapsed timer", () => {
 			},
 			now: () => number,
 			startElapsedMs?: number,
-		) => { tick(): void; complete(): { label: string; ms: number } | undefined; restore(): void };
+		) => { tick(): void; complete(): number | undefined; restore(): void };
 		const events: string[] = [];
 		const animator = {
 			frames: [],
@@ -729,7 +729,7 @@ describe("thinking elapsed timer", () => {
 		now = 13_999;
 		timer.tick();
 		const done = timer.complete();
-		expect(done).toEqual({ label: "Thought for 12s", ms: 12_999 });
+		expect(done).toBe(12_999);
 		now = 99_000;
 		timer.tick(); // Completion is frozen; later ticks do nothing.
 		expect(timer.complete()).toBeUndefined();
@@ -745,7 +745,7 @@ describe("thinking elapsed timer", () => {
 			animator: { tick(label?: string): void; show(label: string): void; restore(): void; frames: readonly string[] },
 			now: () => number,
 			startElapsedMs?: number,
-		) => { tick(): void; complete(): { label: string; ms: number } | undefined; restore(): void };
+		) => { tick(): void; complete(): number | undefined; restore(): void };
 		const labels: string[] = [];
 		const animator = {
 			frames: [],
@@ -758,16 +758,16 @@ describe("thinking elapsed timer", () => {
 		run1.tick();
 		now = 10_000;
 		const done1 = run1.complete();
-		expect(done1?.ms).toBe(5_000);
+		expect(done1).toBe(5_000);
 		// Second run in the same message resumes from run 1's total.
 		now = 12_000;
-		const run2 = createThinkingTimer(animator, () => now, done1?.ms);
+		const run2 = createThinkingTimer(animator, () => now, done1);
 		run2.tick();
 		now = 20_500;
 		run2.tick();
 		const done2 = run2.complete();
 		expect(labels.at(-1)).toBe("Thought for 13s"); // 5s + 8.5s
-		expect(done2?.ms).toBe(13_500);
+		expect(done2).toBe(13_500);
 	});
 });
 
@@ -789,7 +789,7 @@ describe("per-row hidden-thinking labels", () => {
 		rows[2].lastMessage = { timestamp: 3 };
 		const perRow = installPerRowThinkingLabels(FakeRow);
 		expect(perRow).toBeDefined();
-		perRow!.complete(2, "Thought for 4s");
+		perRow!.complete(2, 4_000);
 		perRow!.setActive(1);
 		for (const row of rows) row.setHiddenThinkingLabel("frameX");
 		expect(rows[0].label).toBe("frameX"); // streaming row keeps the animating frame
@@ -831,7 +831,7 @@ describe("per-row hidden-thinking labels", () => {
 		row2.setHiddenThinkingLabel("f1");
 		expect(row1.label).toBe("f1");
 		expect(row2.label).toBe("Thinking...");
-		perRow.complete(1, "Thought for 3s");
+		perRow.complete(1, 3_000);
 		perRow.setActive(2);
 		row1.setHiddenThinkingLabel("f2");
 		row2.setHiddenThinkingLabel("f2");
@@ -853,7 +853,7 @@ describe("per-row hidden-thinking labels", () => {
 		first.uninstall();
 		expect(installPerRowThinkingLabels(FakeRow)).not.toBe(first);
 		const second = installPerRowThinkingLabels(FakeRow)!;
-		second.complete(1, "Thought for 9s");
+		second.complete(1, 9_000);
 		row.setHiddenThinkingLabel("frameX");
 		expect(row.label).toBe("Thought for 9s");
 		second.uninstall();

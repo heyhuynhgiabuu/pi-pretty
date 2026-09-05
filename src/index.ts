@@ -333,10 +333,10 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	const completeThinkingShimmer = (): void => {
 		clearThinkingInterval();
 		const ts = messageTimestamp(thinkingLastMessage);
-		const frozen = thinkingTimer?.complete();
-		if (ts !== undefined && frozen) {
-			thinkingElapsedMs.set(ts, frozen.ms);
-			perRowLabels?.complete(ts, frozen.label);
+		const frozenMs = thinkingTimer?.complete();
+		if (ts !== undefined && frozenMs !== undefined) {
+			thinkingElapsedMs.set(ts, frozenMs);
+			perRowLabels?.complete(ts, frozenMs);
 		}
 		// The completed row is no longer the animating one — drop the active mark
 		// so subsequent global writes freeze it at its own duration.

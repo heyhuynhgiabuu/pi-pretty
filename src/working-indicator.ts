@@ -499,8 +499,9 @@ export interface ThinkingUiLike {
 export interface PerRowThinkingLabels {
 	/** Mark the message currently streaming a thinking block (its row animates). */
 	setActive(timestamp: number): void;
-	/** Freeze a message's completed thinking duration (its row keeps it). */
-	complete(timestamp: number, label: string): void;
+	/** Freeze a message's completed thinking duration in ms (its row shows
+	 * `Thought for Xs` derived from this). */
+	complete(timestamp: number, durationMs: number): void;
 	/** Drop the active mark (run ended); completed rows keep their durations. */
 	clearActive(): void;
 	/** Restore the original prototype setter. */
@@ -534,7 +535,7 @@ export function installPerRowThinkingLabels(componentClass: unknown): PerRowThin
 		return existing;
 	}
 
-	const state: { activeTs?: number; completed: Map<number, string> } = { completed: new Map() };
+	const state: { activeTs?: number; completed: Map<number, number> } = { completed: new Map() };
 	const patched = function (this: unknown, label: string | undefined): void {
 		const own = ownLabel(this, label);
 		(original as (this: unknown, label: string | undefined) => void).call(this, own);
@@ -544,17 +545,18 @@ export function installPerRowThinkingLabels(componentClass: unknown): PerRowThin
 			const ts = (component as RowInternals | undefined)?.lastMessage?.timestamp;
 			if (typeof ts !== "number") return incoming;
 			if (ts === state.activeTs) return incoming;
-			return state.completed.get(ts) ?? THINKING_LABEL;
+			const ms = state.completed.get(ts);
+			return ms === undefined ? THINKING_LABEL : `Thought for ${formatThinkingDuration(ms)}`;
 		} catch {
 			return incoming;
 		}
 	};
-	(patched as { [PER_ROW_PATCH]?: PerRowThinkingLabels })[PER_ROW_PATCH] = {
+	const controller: PerRowThinkingLabels = {
 		setActive(timestamp: number): void {
 			state.activeTs = timestamp;
 		},
-		complete(timestamp: number, label: string): void {
-			state.completed.set(timestamp, label);
+		complete(timestamp: number, durationMs: number): void {
+			state.completed.set(timestamp, durationMs);
 		},
 		clearActive(): void {
 			state.activeTs = undefined;
@@ -567,8 +569,9 @@ export function installPerRowThinkingLabels(componentClass: unknown): PerRowThin
 			state.activeTs = undefined;
 		},
 	};
+	(patched as { [PER_ROW_PATCH]?: PerRowThinkingLabels })[PER_ROW_PATCH] = controller;
 	proto.setHiddenThinkingLabel = patched as NonNullable<{ setHiddenThinkingLabel?: unknown }["setHiddenThinkingLabel"]>;
-	return (patched as { [PER_ROW_PATCH]?: PerRowThinkingLabels })[PER_ROW_PATCH];
+	return controller;
 }
 
 export interface ThinkingLabelAnimator {
@@ -585,9 +588,9 @@ export interface ThinkingLabelAnimator {
 export interface ThinkingTimer {
 	/** Render the active label with the current elapsed duration. */
 	tick(): void;
-	/** Freeze the elapsed duration; returns the frozen wording and raw
-	 * milliseconds, or undefined when the timer was already terminal. */
-	complete(): { label: string; ms: number } | undefined;
+	/** Freeze the elapsed duration; returns the total in milliseconds, or
+	 * undefined when the timer was already terminal. */
+	complete(): number | undefined;
 	/** Restore pi's default label and make the timer terminal. */
 	restore(): void;
 }
@@ -628,13 +631,12 @@ export function createThinkingTimer(
 			if (terminal) return;
 			animator.tick(`${THINKING_LABEL} ${duration()}`);
 		},
-		complete(): { label: string; ms: number } | undefined {
+		complete(): number | undefined {
 			if (terminal) return undefined;
 			terminal = true;
-			const ms = Math.max(0, elapsed());
-			const label = `Thought for ${formatThinkingDuration(ms)}`;
-			animator.show(label);
-			return { label, ms };
+			const ms = elapsed();
+			animator.show(`Thought for ${formatThinkingDuration(ms)}`);
+			return ms;
 		},
 		restore(): void {
 			terminal = true;
