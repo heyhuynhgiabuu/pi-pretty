@@ -148,6 +148,30 @@ describe("thinking timer lifecycle wiring", () => {
 		expect(afterTick).toMatch(/^Thinking\.\.\. 0s$/); // fresh timer, not the old phase
 	});
 
+	it("resumes the accumulated total when the same message thinks again", async () => {
+		const ctx = await loadExtension();
+		const msg = { role: "assistant", timestamp: 31337, content: [{ type: "thinking", thinking: "a" }] };
+		const withText = {
+			role: "assistant",
+			timestamp: 31337,
+			content: [...msg.content, { type: "text", text: "partial" }],
+		};
+		const start = Date.now();
+		await events.get("message_update")!({ message: msg }, ctx);
+		vi.setSystemTime(start + 7_000);
+		await events.get("message_update")!({ message: withText }, ctx);
+		expect(labels.at(-1)).toBe("Thought for 7s");
+
+		// Interleaved run in the SAME message (thinking again after text) resumes 7s.
+		const thinkingAgain = { ...withText, content: [...withText.content, { type: "thinking", thinking: "b" }] };
+		vi.setSystemTime(start + 9_000);
+		await events.get("message_update")!({ message: thinkingAgain }, ctx);
+		expect(stripAnsi(labels.at(-1) ?? "")).toBe("Thinking... 7s");
+		vi.setSystemTime(start + 12_500);
+		vi.advanceTimersByTime(33);
+		expect(stripAnsi(labels.at(-1) ?? "")).toBe("Thinking... 10s");
+	});
+
 	it("restores the default label when thinking is revealed mid-phase while ticking", async () => {
 		const ctx = await loadExtension();
 		await events.get("message_update")!({ message: thinkingMessage }, ctx);

@@ -173,6 +173,9 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	let workingStreaming = false;
 	let workingStatsUpdatedAt = 0;
 	let perRowLabels: PerRowThinkingLabels | undefined;
+	/** Accumulated thinking time per message timestamp — later runs in the same
+	 * message resume from this total instead of rewinding to zero. */
+	const thinkingElapsedMs = new Map<number, number>();
 	const TOKEN_COUNT_FORMAT = new Intl.NumberFormat("en-US");
 
 	/** Message timestamps are the per-row identity the label patch keys on. */
@@ -331,7 +334,10 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		clearThinkingInterval();
 		const ts = messageTimestamp(thinkingLastMessage);
 		const frozen = thinkingTimer?.complete();
-		if (ts !== undefined && frozen) perRowLabels?.complete(ts, frozen);
+		if (ts !== undefined && frozen) {
+			thinkingElapsedMs.set(ts, frozen.ms);
+			perRowLabels?.complete(ts, frozen.label);
+		}
 		// The completed row is no longer the animating one — drop the active mark
 		// so subsequent global writes freeze it at its own duration.
 		perRowLabels?.clearActive();
@@ -360,8 +366,10 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 			thinkingHiddenCheckedAt = Date.now();
 			if (!thinkingHidden()) return; // thinking visible: no label writes at all
 			const animator = createThinkingLabelAnimator(ctx.ui, workingSettings, workingSessionName, thinkingSettings);
-			thinkingTimer = createThinkingTimer(animator);
 			const activeTs = messageTimestamp(thinkingLastMessage);
+			// Same message thinking again (interleaved runs): resume its total.
+			const resumeMs = activeTs !== undefined ? (thinkingElapsedMs.get(activeTs) ?? 0) : 0;
+			thinkingTimer = createThinkingTimer(animator, Date.now, resumeMs);
 			if (activeTs !== undefined) perRowLabels?.setActive(activeTs);
 			thinkingTimer.tick();
 			thinkingInterval = setInterval(() => {
@@ -442,6 +450,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		stopThinkingShimmer();
 		perRowLabels?.uninstall();
 		perRowLabels = undefined;
+		thinkingElapsedMs.clear();
 		workingStreaming = false;
 		// Intentionally keep the native FFF finder on session shutdown.
 		// Pi can emit shutdown/start during resume or session switching while the

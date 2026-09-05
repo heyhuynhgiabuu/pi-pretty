@@ -209,12 +209,14 @@ time (`Thinking... 12s`) under the same shimmer: italic `thinkingText` base with
 Each row keeps its own label: pi-pretty intercepts the host's per-row label fan-out
 (`AssistantMessageComponent.prototype.setHiddenThinkingLabel`), so the streaming row animates while
 completed rows stay frozen at their own `Thought for 12s` instead of every row mirroring the latest
-write. Durations live for the current session (they are not persisted across restarts). If the host
-class is missing or reshaped, the intercept falls back to pi's global-label behavior — including
-restoring the default `Thinking...` at message end so older rows are never mislabeled. The 30fps
-ticker runs only while the current message's last block is thinking, bounding the cost of
-`setHiddenThinkingLabel(label)` rebuilding chat children. Inherits `mode`, `bold`, and the
-palette/accent from `workingIndicator`.
+write. Durations live for the current session (they are not persisted across restarts). A message
+with several thinking runs (interleaved `thinking → text → thinking`, common on Gemini) shares one
+label line per run, so those runs accumulate a single per-message total — a later run resumes the
+count instead of rewinding to zero. If the host class is missing or reshaped, the intercept falls
+back to pi's global-label behavior — including restoring the default `Thinking...` at message end so
+older rows are never mislabeled. The 30fps ticker runs only while the current message's last block
+is thinking, bounding the cost of `setHiddenThinkingLabel(label)` rebuilding chat children. Inherits
+`mode`, `bold`, and the palette/accent from `workingIndicator`.
 
 ### Environment variables
 

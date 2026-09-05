@@ -585,9 +585,9 @@ export interface ThinkingLabelAnimator {
 export interface ThinkingTimer {
 	/** Render the active label with the current elapsed duration. */
 	tick(): void;
-	/** Freeze the elapsed duration; returns the frozen label, or undefined when
-	 * the timer was already terminal. */
-	complete(): string | undefined;
+	/** Freeze the elapsed duration; returns the frozen wording and raw
+	 * milliseconds, or undefined when the timer was already terminal. */
+	complete(): { label: string; ms: number } | undefined;
 	/** Restore pi's default label and make the timer terminal. */
 	restore(): void;
 }
@@ -609,23 +609,32 @@ export function formatThinkingDuration(elapsedMs: number): string {
 /**
  * Couple elapsed-time wording to the label animator through an injected clock.
  * The timer starts on the first thinking delta, freezes once, and is terminal
- * after completion or restore.
+ * after completion or restore. `startElapsedMs` resumes a later run in the
+ * same message from its accumulated thinking time (per-message semantics:
+ * the host renders one label line per thinking run, all sharing the message
+ * label, so a fresh-zero restart would visibly rewind earlier lines).
  */
-export function createThinkingTimer(animator: ThinkingLabelAnimator, now: () => number = Date.now): ThinkingTimer {
-	const startedAt = now();
+export function createThinkingTimer(
+	animator: ThinkingLabelAnimator,
+	now: () => number = Date.now,
+	startElapsedMs = 0,
+): ThinkingTimer {
+	const startedAt = now() - startElapsedMs;
 	let terminal = false;
-	const duration = (): string => formatThinkingDuration(now() - startedAt);
+	const elapsed = (): number => now() - startedAt;
+	const duration = (): string => formatThinkingDuration(elapsed());
 	return {
 		tick(): void {
 			if (terminal) return;
 			animator.tick(`${THINKING_LABEL} ${duration()}`);
 		},
-		complete(): string | undefined {
+		complete(): { label: string; ms: number } | undefined {
 			if (terminal) return undefined;
 			terminal = true;
-			const label = `Thought for ${duration()}`;
+			const ms = Math.max(0, elapsed());
+			const label = `Thought for ${formatThinkingDuration(ms)}`;
 			animator.show(label);
-			return label;
+			return { label, ms };
 		},
 		restore(): void {
 			terminal = true;

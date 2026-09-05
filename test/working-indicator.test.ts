@@ -714,7 +714,8 @@ describe("thinking elapsed timer", () => {
 				readonly frames: readonly string[];
 			},
 			now: () => number,
-		) => { tick(): void; complete(): void; restore(): void };
+			startElapsedMs?: number,
+		) => { tick(): void; complete(): { label: string; ms: number } | undefined; restore(): void };
 		const events: string[] = [];
 		const animator = {
 			frames: [],
@@ -727,13 +728,46 @@ describe("thinking elapsed timer", () => {
 		timer.tick();
 		now = 13_999;
 		timer.tick();
-		timer.complete();
+		const done = timer.complete();
+		expect(done).toEqual({ label: "Thought for 12s", ms: 12_999 });
 		now = 99_000;
 		timer.tick(); // Completion is frozen; later ticks do nothing.
+		expect(timer.complete()).toBeUndefined();
 		timer.restore();
 		timer.tick();
 		timer.complete();
 		expect(events).toEqual(["tick:Thinking... 0s", "tick:Thinking... 12s", "show:Thought for 12s", "restore"]);
+	});
+
+	it("resumes a later run in the same message from the accumulated elapsed time", async () => {
+		const module = (await freshModule("../src/working-indicator.js")) as Record<string, unknown>;
+		const createThinkingTimer = module.createThinkingTimer as (
+			animator: { tick(label?: string): void; show(label: string): void; restore(): void; frames: readonly string[] },
+			now: () => number,
+			startElapsedMs?: number,
+		) => { tick(): void; complete(): { label: string; ms: number } | undefined; restore(): void };
+		const labels: string[] = [];
+		const animator = {
+			frames: [],
+			tick: (label = "") => labels.push(label),
+			show: (label: string) => labels.push(label),
+			restore: () => labels.push("<restore>"),
+		};
+		let now = 5_000;
+		const run1 = createThinkingTimer(animator, () => now);
+		run1.tick();
+		now = 10_000;
+		const done1 = run1.complete();
+		expect(done1?.ms).toBe(5_000);
+		// Second run in the same message resumes from run 1's total.
+		now = 12_000;
+		const run2 = createThinkingTimer(animator, () => now, done1?.ms);
+		run2.tick();
+		now = 20_500;
+		run2.tick();
+		const done2 = run2.complete();
+		expect(labels.at(-1)).toBe("Thought for 13s"); // 5s + 8.5s
+		expect(done2?.ms).toBe(13_500);
 	});
 });
 
