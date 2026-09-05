@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.26] - 2026-09-05
+
+### Added
+
+- Hidden-thinking elapsed timer: `Thinking... Xs` while thinking, then `Thought for Xs`. Completed messages keep their own durations for the session; multiple thinking runs within one message share its accumulated thinking time. Durations are not persisted across restarts.
+- Live output-token count on the working indicator, using provider usage when available and a character-based estimate otherwise.
+
+### Fixed
+
+- Load the pi extension from `src/index.ts` so jiti honors host SDK aliases even when a local checkout has its own SDK dependency. This prevents the per-message label patch from targeting a different class and making completed rows mirror the active timer. The Node package entry remains `dist/index.js`.
+- Remove blank bottom-padding rows under `bash`, `read`, `find`, `grep`, and `ls` titles, including skill-read headers and expanded result-leading gaps. Preserve top padding and result-body/footer spacing; host `edit`/`write` renderers are unchanged.
+
+### Maintenance
+
+- Update Pi development dependencies to `^0.85.0` and include `@earendil-works/pi-server` for the development SDK import graph.
+
 ## [0.6.25] - 2026-08-29
 
 ### Added
