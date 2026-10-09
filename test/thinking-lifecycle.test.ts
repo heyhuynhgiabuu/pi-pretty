@@ -24,7 +24,7 @@ let agentDir: string;
 let labels: Array<string | undefined>;
 let notifications: Array<{ message: string; type: string }>;
 let events: Map<string, (event: unknown, ctx: unknown) => Promise<void> | void>;
-let mockPi: { registerTool: ReturnType<typeof vi.fn>; registerCommand: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> };
+let mockPi: { registerTool: ReturnType<typeof vi.fn>; registerToolRenderer: ReturnType<typeof vi.fn>; registerCommand: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> };
 
 const writeSettings = (hideThinkingBlock: boolean): void => {
 	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ hideThinkingBlock }));
@@ -77,6 +77,7 @@ beforeEach(() => {
 	events = new Map();
 	mockPi = {
 		registerTool: vi.fn(),
+		registerToolRenderer: vi.fn(),
 		registerCommand: vi.fn(),
 		on: vi.fn((event: string, handler: (event: unknown, ctx: unknown) => Promise<void> | void) => {
 			events.set(event, handler);

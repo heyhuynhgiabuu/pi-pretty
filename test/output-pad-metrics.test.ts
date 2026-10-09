@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import piPrettyExtension from "../src/index.js";
 import { registerReadTool } from "../src/tools/read.js";
+import { captureBashRenderer } from "./bash-renderer-harness.js";
 
 class MockText {
 	protected text = "";
@@ -30,7 +31,7 @@ type Opts = { Text?: typeof MockText; exec?: (...a: any[]) => Promise<any> };
 function loadTools({ Text = MockText, exec }: Opts = {}) {
 	const noopExec = exec ?? (async () => ({ content: [{ type: "text", text: "" }] }));
 	const tools = new Map<string, any>();
-	const pi = { registerTool: (t: any) => tools.set(t.name, t), registerCommand: () => {}, on: () => {} };
+	const pi = { registerTool: (t: any) => tools.set(t.name, t), registerToolRenderer: captureBashRenderer(tools, { execute: noopExec } as any), registerCommand: () => {}, on: () => {} };
 	const prev = process.env.PRETTY_ENABLE_TOOLS;
 	process.env.PRETTY_ENABLE_TOOLS = "ls";
 	try {
@@ -261,7 +262,7 @@ describe("durationMs preference", () => {
 		expect(out).toContain("7 chars");
 	});
 
-	it("rejected bash: without host duration, wrapper elapsed is used", async () => {
+	it("rejected bash: without host duration, no elapsed is invented", async () => {
 		const tools = loadTools({
 			exec: async () => {
 				await new Promise((r) => setTimeout(r, 20));
@@ -274,7 +275,7 @@ describe("durationMs preference", () => {
 		const mk = () => ({ ...mkCtx(false, state, { isError: true }), toolCallId: "tc-2" });
 		const call = tool.renderCall({ command: "x" }, theme, mk());
 		const res = tool.renderResult({ content: [{ type: "text", text: "kaboom!" }] }, {}, theme, mk());
-		expect(strip(`${call.getText()}\n${res.getText()}`)).toMatch(/\d+ms/);
+		expect(strip(`${call.getText()}\n${res.getText()}`)).not.toMatch(/\d+ms/);
 	});
 });
 

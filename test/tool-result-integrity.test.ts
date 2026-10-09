@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import piPrettyExtension from "../src/index.js";
+import { captureBashRenderer } from "./bash-renderer-harness.js";
 
 class MockText {
 	private text = "";
@@ -46,6 +47,7 @@ async function loadTools(contentMap: Map<string, string>) {
 	const handlers: string[] = [];
 	const pi: any = {
 		registerTool: (tool: any) => tools.set(tool.name, tool),
+		registerToolRenderer: captureBashRenderer(tools, mockSdk(contentMap).createBashToolDefinition(process.cwd()) as any),
 		registerCommand: () => {},
 		on: (event: string) => {
 			handlers.push(event);

@@ -10,6 +10,7 @@ async function loadMarkdownTransformer(): Promise<MarkdownTransformer> {
 			transformer = candidate;
 		},
 		registerTool: () => {},
+		registerToolRenderer: () => {},
 		registerCommand: () => {},
 		on: () => {},
 	};

@@ -37,7 +37,7 @@ const jiti = createJiti(import.meta.url, {
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const extension = await jiti.import(join(root, manifest.pi.extensions[0]), { default: true });
 const handlers = new Map();
-await extension({ on: (name, handler) => handlers.set(name, handler), registerTool() {}, registerCommand() {} }, { sdk: {}, fffModule: { FileFinder: { create: () => ({ ok: false, error: 'disabled in loader test' }) } } });
+await extension({ on: (name, handler) => handlers.set(name, handler), registerTool() {}, registerToolRenderer() {}, registerCommand() {} }, { sdk: {}, fffModule: { FileFinder: { create: () => ({ ok: false, error: 'disabled in loader test' }) } } });
 const rows = [new HostRow(1), new HostRow(2), new HostRow(3)];
 const ctx = {
   mode: 'tui', cwd: dir,

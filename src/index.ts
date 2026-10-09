@@ -521,13 +521,11 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 
 	const sdk: SdkTools = deps?.sdk ?? {
 		createReadToolDefinition: hostSdk.createReadToolDefinition,
-		createBashToolDefinition: hostSdk.createBashToolDefinition,
 		createLsToolDefinition: hostSdk.createLsToolDefinition,
 		createFindToolDefinition: hostSdk.createFindToolDefinition,
 		createGrepToolDefinition: hostSdk.createGrepToolDefinition,
 	};
 	const createReadTool = sdk.createReadToolDefinition ?? sdk.createReadTool;
-	const createBashTool = sdk.createBashToolDefinition ?? sdk.createBashTool;
 	const createLsTool = sdk.createLsToolDefinition ?? sdk.createLsTool;
 	const createFindTool = sdk.createFindToolDefinition ?? sdk.createFindTool;
 	const createGrepTool = sdk.createGrepToolDefinition ?? sdk.createGrepTool;
@@ -539,8 +537,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	if (isToolEnabled("read") && createReadTool) {
 		registerReadTool(pi, cwd, null, createReadTool(cwd), TextComp);
 	}
-	if (isToolEnabled("bash") && createBashTool) {
-		registerBashTool(pi, cwd, null, createBashTool(cwd), TextComp);
+	if (isToolEnabled("bash")) {
+		registerBashTool(pi, TextComp);
 	}
 	if (isToolEnabled("ls") && createLsTool) {
 		registerLsTool(pi, cwd, null, createLsTool(cwd), TextComp);
