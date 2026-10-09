@@ -47,6 +47,7 @@
 		"@earendil-works/pi-server": "1.1.0",
 		"@earendil-works/pi-tui": "1.1.0",
 		"@types/node": "^20.0.0",
+		"pi-landstrip": "^0.19.8",
 		"typescript": "^5.0.0",
 		"vitest": "^4.0.18"
 	},
