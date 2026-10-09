@@ -58,7 +58,7 @@ export function registerBashTool(
 			return text;
 		},
 
-		renderResult(result: Result, _opt: unknown, theme: ThemeLike, ctx: RenderCtxLike) {
+		renderResult(result: Result, _opt: { isPartial?: boolean }, theme: ThemeLike, ctx: RenderCtxLike) {
 			resolveBaseBackground(theme);
 
 			const text = ctx.lastComponent ?? new TC("", 0, 0);
@@ -67,6 +67,20 @@ export function registerBashTool(
 
 			const details = displayResult.details;
 			const tc = getText(displayResult);
+			if (_opt.isPartial || ctx.isPartial) {
+				const running = theme.fg("muted", "running…");
+				if (setCollapsedToolTitle(ctx, text, ` ${running}`)) return text;
+				const ind = toolIndent(ctx);
+				const output =
+					ctx.expanded && tc
+						? `\n\n${tc
+								.split("\n")
+								.map((line) => `${ind}${line}`)
+								.join("\n")}`
+						: "";
+				text.setText(fillToolBody(`${ind}${running}${output}`, undefined, undefined, ind));
+				return text;
+			}
 			const d: BashDetails | undefined =
 				(details as BashDetails)?._type === "bashResult"
 					? (details as BashDetails)

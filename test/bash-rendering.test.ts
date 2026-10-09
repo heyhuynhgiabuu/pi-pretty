@@ -203,6 +203,35 @@ describe("bash renderer registration", () => {
 		expect(resolver("read", next)).toEqual({ renderShell: "default" });
 		expect(next).toHaveBeenCalledOnce();
 	});
+
+	it.each([false, true])("handles empty and streaming partial results (expanded=%s)", (expanded) => {
+		const tool = loadBashTool();
+		const state = {};
+		const call = tool.renderCall({ command: "printf test" }, mockTheme, { state, expanded });
+		let component = new MockText();
+		for (const content of [[], [{ type: "text", text: "" }], [{ type: "text", text: "test" }]]) {
+			const result = { content, details: undefined };
+			const original = structuredClone(result);
+			const rendered = tool.renderResult(result, { isPartial: true }, mockTheme, {
+				state,
+				expanded,
+				lastComponent: component,
+			});
+			expect(rendered).toBe(component);
+			component = rendered;
+			const output = stripAnsi(`${call.getText()}\n${component.getText()}`);
+			expect(output).toContain("running…");
+			expect(output).not.toContain("done");
+			expect(output).not.toContain("lines");
+			expect(result).toEqual(original);
+		}
+		tool.renderResult({ content: [{ type: "text", text: "test" }] }, { isPartial: false }, mockTheme, {
+			state,
+			expanded,
+			lastComponent: component,
+		});
+		expect(stripAnsi(`${call.getText()}\n${component.getText()}`)).not.toContain("running…");
+	});
 });
 
 describe("bash renderCall expansion", () => {
