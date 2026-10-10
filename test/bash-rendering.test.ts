@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import piPrettyExtension from "../src/index.js";
 import { registerBashTool } from "../src/tools/bash.js";
 import type { SdkToolDef } from "../src/types.js";
+import { captureBashRenderer } from "./bash-renderer-harness.js";
 
 class MockText {
 	private text = "";
@@ -62,6 +63,7 @@ function loadTools() {
 	const tools = new Map<string, any>();
 	const pi = {
 		registerTool: (tool: any) => tools.set(tool.name, tool),
+		registerToolRenderer: captureBashRenderer(tools),
 		registerCommand: () => {},
 		on: () => {},
 	};
@@ -88,8 +90,11 @@ function loadBashTool() {
 /** Register the bash tool with a mock SDK definition and return the registered tool. */
 function registerBashToolWith(sdkTool: SdkToolDef) {
 	const registerTool = vi.fn();
-	registerBashTool({ registerTool } as any, process.cwd(), undefined, sdkTool, MockText);
-	return registerTool.mock.calls[0]?.[0];
+	const tools = new Map<string, any>();
+	registerBashTool({ registerTool, registerToolRenderer: captureBashRenderer(tools, sdkTool as any) } as any, MockText);
+	expect(registerTool).not.toHaveBeenCalled();
+	expect(tools.get("bash").execute).toBe(sdkTool.execute);
+	return tools.get("bash");
 }
 
 describe("bash output schema", () => {
@@ -109,10 +114,11 @@ describe("bash output schema", () => {
 });
 
 describe("bash ripgrep guidance", () => {
-	it("merges the host guidelines with the ripgrep guidance", () => {
+	it("preserves the host guidelines without adding ripgrep guidance", () => {
 		const tool = registerBashToolWith({
 			description: "Execute a bash command.",
 			parameters: {},
+			promptSnippet: "native snippet",
 			promptGuidelines: ["You can inspect PI_* environment variables for current model and session details."],
 			constrainedSampling: { type: "json_schema", strict: "prefer" },
 			execute: vi.fn(),
@@ -123,44 +129,32 @@ describe("bash ripgrep guidance", () => {
 			"You can inspect PI_* environment variables for current model and session details.",
 		);
 		expect(tool.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
-		expect(tool.promptSnippet).toContain("rg -n");
-		expect(tool.description).toContain("rg -n");
-		expect(guidelines).toContain("`--hidden`");
-		expect(guidelines).toContain("`--no-ignore`");
-		expect(guidelines).toContain("`-u` = `--no-ignore`");
-		expect(guidelines).toContain("`-uu` adds hidden");
-		expect(guidelines).toContain("rg -n 'foo|bar'");
-		expect(guidelines).toContain("`\\|` is a literal pipe");
-		expect(guidelines).toContain("`-F` for literal text");
-		expect(guidelines).toContain("`-l` lists files only");
-		expect(guidelines).toContain("`-m N` caps matches per file");
-		expect(guidelines).not.toContain("respects .gitignore by default");
+		expect(tool.promptSnippet).toBe("native snippet");
+		expect(tool.description).toBe("Execute a bash command.");
+		expect(guidelines).toBe("You can inspect PI_* environment variables for current model and session details.");
 	});
 
-	it("registers the ripgrep guidance when the SDK tool provides none", () => {
+	it("does not inject ripgrep guidance when the SDK tool provides none", () => {
 		const tool = registerBashToolWith({ description: "Execute a bash command.", parameters: {}, execute: vi.fn() });
 		const guidelines = tool.promptGuidelines as string[];
-		expect(guidelines).toHaveLength(3);
-		expect(guidelines[0]).toContain("rg skips .gitignored and hidden files by default");
+		expect(guidelines).toBeUndefined();
 	});
 });
 
 describe("bash execution", () => {
-	it("preserves rejected execution metrics for error rendering", async () => {
+	it("renders host-supplied execution metrics for error rendering", async () => {
 		const registerTool = vi.fn();
+		const tools = new Map<string, any>();
 		registerBashTool(
-			{ registerTool } as any,
-			process.cwd(),
-			undefined,
-			{
+			{ registerTool, registerToolRenderer: captureBashRenderer(tools, {
 				description: "bash",
 				parameters: {},
 				execute: vi.fn().mockRejectedValue(new Error("command failed")),
-			} as any,
+			} as any) } as any,
 			MockText,
 		);
 
-		const tool = registerTool.mock.calls[0]?.[0];
+		const tool = tools.get("bash");
 		await expect(tool.execute("metrics-error", { command: "false" }, undefined, undefined, {})).rejects.toThrow(
 			"command failed",
 		);
@@ -174,6 +168,7 @@ describe("bash execution", () => {
 				state: {},
 				expanded: false,
 				toolCallId: "metrics-error",
+				durationMs: 123,
 			},
 		);
 
@@ -184,20 +179,58 @@ describe("bash execution", () => {
 	it("preserves rejected SDK executions as tool failures", async () => {
 		const failure = new Error("command failed");
 		const registerTool = vi.fn();
+		const tools = new Map<string, any>();
 		registerBashTool(
-			{ registerTool } as any,
-			process.cwd(),
-			undefined,
-			{
+			{ registerTool, registerToolRenderer: captureBashRenderer(tools, {
 				description: "bash",
 				parameters: {},
 				execute: vi.fn().mockRejectedValue(failure),
-			} as any,
+			} as any) } as any,
 			MockText,
 		);
 
-		const tool = registerTool.mock.calls[0]?.[0];
+		const tool = tools.get("bash");
 		await expect(tool.execute("t1", { command: "false" }, undefined, undefined, {})).rejects.toBe(failure);
+	});
+});
+
+describe("bash renderer registration", () => {
+	it("passes unrelated tools to the next resolver", () => {
+		const registerToolRenderer = vi.fn();
+		registerBashTool({ registerToolRenderer } as any, MockText);
+		const next = vi.fn(() => ({ renderShell: "default" }));
+		const resolver = registerToolRenderer.mock.calls[0][0];
+		expect(resolver("read", next)).toEqual({ renderShell: "default" });
+		expect(next).toHaveBeenCalledOnce();
+	});
+
+	it.each([false, true])("handles empty and streaming partial results (expanded=%s)", (expanded) => {
+		const tool = loadBashTool();
+		const state = {};
+		const call = tool.renderCall({ command: "printf test" }, mockTheme, { state, expanded });
+		let component = new MockText();
+		for (const content of [[], [{ type: "text", text: "" }], [{ type: "text", text: "test" }]]) {
+			const result = { content, details: undefined };
+			const original = structuredClone(result);
+			const rendered = tool.renderResult(result, { isPartial: true }, mockTheme, {
+				state,
+				expanded,
+				lastComponent: component,
+			});
+			expect(rendered).toBe(component);
+			component = rendered;
+			const output = stripAnsi(`${call.getText()}\n${component.getText()}`);
+			expect(output).toContain("running…");
+			expect(output).not.toContain("done");
+			expect(output).not.toContain("lines");
+			expect(result).toEqual(original);
+		}
+		tool.renderResult({ content: [{ type: "text", text: "test" }] }, { isPartial: false }, mockTheme, {
+			state,
+			expanded,
+			lastComponent: component,
+		});
+		expect(stripAnsi(`${call.getText()}\n${component.getText()}`)).not.toContain("running…");
 	});
 });
 
@@ -374,7 +407,7 @@ describe("bash renderCall expansion", () => {
 				},
 			);
 			const collapsedLines = stripAnsi(collapsed.getText()).split("\n");
-			expect(collapsedLines[0]).toContain("3 lines · ctrl+o to expand");
+			expect(collapsedLines[0]).toContain("3 lines · 28 chars · ctrl+o to expand");
 			expect(collapsedLines[0]).not.toContain("exit");
 			expect(collapsedLines.at(-1)?.trim()).toBe("");
 			expect(collapsedLines.some((l) => l.includes("first error"))).toBe(false);

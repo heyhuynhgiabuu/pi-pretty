@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import piPrettyExtension from "../src/index.js";
+import { captureBashRenderer } from "./bash-renderer-harness.js";
 
 class MockText {
 	private text = "";
@@ -28,6 +29,7 @@ function loadTools() {
 	const tools = new Map<string, any>();
 	const pi = {
 		registerTool: (tool: any) => tools.set(tool.name, tool),
+		registerToolRenderer: captureBashRenderer(tools),
 		registerCommand: () => {},
 		on: () => {},
 	};

@@ -32,6 +32,7 @@ export interface RenderCtxLike {
 	lastComponent?: ComponentLike;
 	toolCallId?: string;
 	isError?: boolean;
+	isPartial?: boolean;
 	state: Record<string, unknown>;
 	expanded?: boolean;
 	invalidate?: () => void;

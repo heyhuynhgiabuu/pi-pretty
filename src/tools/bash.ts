@@ -1,15 +1,8 @@
 /* pi-pretty: bash tool -- command execution with styled output. */
 
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { resolveBaseBackground, termWidth } from "../config.js";
-import {
-	CHARS_KEY,
-	compactErrorLines,
-	ELAPSED_KEY,
-	formatCharCount,
-	inferBashExitCode,
-	stripBashExitStatusLine,
-} from "../helpers.js";
+import { compactErrorLines, formatCharCount, inferBashExitCode, stripBashExitStatusLine } from "../helpers.js";
 import {
 	fillToolBackground,
 	fillToolBody,
@@ -20,45 +13,11 @@ import {
 	toolIndent,
 } from "../render.js";
 import { resolveTextCtor } from "../tui-text.js";
-import type { BashDetails, ComponentLike, RenderCtxLike, SdkToolDef, TextContent, ThemeLike } from "../types.js";
-import { type RejectedExecutionMetrics, wrapExecuteWithMetrics } from "./metrics.js";
+import type { BashDetails, ComponentLike, RenderCtxLike, TextContent, ThemeLike } from "../types.js";
 
 type Result = AgentToolResult<Record<string, unknown>>;
 
-const BASH_REJECTED_METRICS_KEY = "__piPrettyBashRejectedMetrics";
 const BASH_RESULT_RENDER_KEY = "__piPrettyBashResultRender";
-const REJECTED_METRICS_TTL_MS = 60_000;
-const rejectedBashMetrics = new Map<string, RejectedExecutionMetrics>();
-
-function rememberRejectedBashMetrics(toolCallId: string, metrics: RejectedExecutionMetrics): void {
-	rejectedBashMetrics.set(toolCallId, metrics);
-	const timer = setTimeout(() => {
-		if (rejectedBashMetrics.get(toolCallId) === metrics) rejectedBashMetrics.delete(toolCallId);
-	}, REJECTED_METRICS_TTL_MS);
-	timer.unref?.();
-}
-
-function takeRejectedBashMetrics(ctx: RenderCtxLike): RejectedExecutionMetrics | undefined {
-	const state = ctx.state;
-	const cached = state[BASH_REJECTED_METRICS_KEY] as RejectedExecutionMetrics | undefined;
-	if (cached) return cached;
-	if (!ctx.toolCallId) return undefined;
-	const metrics = rejectedBashMetrics.get(ctx.toolCallId);
-	if (metrics) {
-		rejectedBashMetrics.delete(ctx.toolCallId);
-		state[BASH_REJECTED_METRICS_KEY] = metrics;
-	}
-	return metrics;
-}
-
-function addRejectedMetrics(result: Result, metrics: RejectedExecutionMetrics): Result {
-	const details = {
-		...((result.details ?? {}) as Record<string, unknown>),
-		[ELAPSED_KEY]: metrics.elapsedMs,
-		[CHARS_KEY]: metrics.chars,
-	};
-	return { ...result, details } as Result;
-}
 
 function restoreBashResultRender(ctx: RenderCtxLike, text: ComponentLike): void {
 	const state = ctx.state;
@@ -70,38 +29,12 @@ function restoreBashResultRender(ctx: RenderCtxLike, text: ComponentLike): void 
 
 export function registerBashTool(
 	pi: ExtensionAPI,
-	_cwd: string,
-	_fffService: unknown,
-	sdkTool: SdkToolDef,
 	TextComp?: new (t?: string, x?: number, y?: number) => { setText(v: string): void },
 ): void {
 	const TC = resolveTextCtor(TextComp);
 
-	pi.registerTool({
-		name: "bash",
-		label: "Bash",
-		description: sdkTool.description
-			? `${sdkTool.description} For text search: \`rg -n\`.`
-			: "Execute shell commands. For text search: `rg -n`.",
-		promptSnippet: "Execute commands via bash. For text search: `rg -n`.",
-		promptGuidelines: [
-			// Re-registering by name drops the host's built-in bash guidelines; keep them.
-			...(sdkTool.promptGuidelines ?? []),
-			"rg skips .gitignored and hidden files by default. On no results use `--hidden` for dotfiles (add `-g '!.git'`), `--no-ignore` for ignored files, or name the path directly; `-u` = `--no-ignore`, `-uu` adds hidden.",
-			"Quote rg patterns: `rg -n 'foo|bar'`. `|` is alternation, `\\|` is a literal pipe (unlike GNU grep); use `-F` for literal text.",
-			"Keep output small: `-l` lists files only, `-m N` caps matches per file.",
-		],
-		parameters: sdkTool.parameters,
-		constrainedSampling: sdkTool.constrainedSampling,
-		outputSchema: sdkTool.outputSchema,
+	const renderers = {
 		renderShell: "self",
-
-		execute: wrapExecuteWithMetrics(async (tid, params, sig, upd, ctx: ExtensionContext) => {
-			// Let the host derive the tool-error flag from the rejected execution.
-			// AgentToolResult has no portable `isError` field, so converting a bash
-			// failure into a successful-looking result hides the failure from the model.
-			return (await sdkTool.execute(tid, params, sig, upd, ctx)) as Result;
-		}, rememberRejectedBashMetrics),
 
 		renderCall(args: any, theme: ThemeLike, ctx: RenderCtxLike) {
 			resolveBaseBackground(theme);
@@ -125,16 +58,29 @@ export function registerBashTool(
 			return text;
 		},
 
-		renderResult(result: Result, _opt: unknown, theme: ThemeLike, ctx: RenderCtxLike) {
+		renderResult(result: Result, _opt: { isPartial?: boolean }, theme: ThemeLike, ctx: RenderCtxLike) {
 			resolveBaseBackground(theme);
 
 			const text = ctx.lastComponent ?? new TC("", 0, 0);
 			restoreBashResultRender(ctx, text as ComponentLike);
-			const rejectedMetrics = takeRejectedBashMetrics(ctx);
-			const displayResult = rejectedMetrics ? addRejectedMetrics(result, rejectedMetrics) : result;
+			const displayResult = result;
 
 			const details = displayResult.details;
 			const tc = getText(displayResult);
+			if (_opt.isPartial || ctx.isPartial) {
+				const running = theme.fg("muted", "running…");
+				if (setCollapsedToolTitle(ctx, text, ` ${running}`)) return text;
+				const ind = toolIndent(ctx);
+				const output =
+					ctx.expanded && tc
+						? `\n\n${tc
+								.split("\n")
+								.map((line) => `${ind}${line}`)
+								.join("\n")}`
+						: "";
+				text.setText(fillToolBody(`${ind}${running}${output}`, undefined, undefined, ind));
+				return text;
+			}
 			const d: BashDetails | undefined =
 				(details as BashDetails)?._type === "bashResult"
 					? (details as BashDetails)
@@ -156,7 +102,7 @@ export function registerBashTool(
 					[
 						`${lineCount} lines`,
 						renderToolDuration(displayResult, ctx),
-						rejectedMetrics ? formatCharCount(rejectedMetrics.chars) : "",
+						ctx.isError ? formatCharCount(tc.length) : "",
 						!ctx.expanded ? "ctrl+o to expand" : "",
 					]
 						.filter(Boolean)
@@ -212,7 +158,8 @@ export function registerBashTool(
 			);
 			return text;
 		},
-	} as unknown as ToolDefinition<any, any, any>);
+	} as unknown as ToolRenderers;
+	pi.registerToolRenderer((name, next) => (name === "bash" ? renderers : next()));
 }
 
 function getText(result: Result): string {

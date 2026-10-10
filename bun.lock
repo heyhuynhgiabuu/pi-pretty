@@ -16,12 +16,13 @@
         "@earendil-works/pi-server": "1.1.0",
         "@earendil-works/pi-tui": "1.1.0",
         "@types/node": "^20.0.0",
+        "pi-landstrip": "^0.19.8",
         "typescript": "^5.0.0",
         "vitest": "^4.0.18",
       },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-coding-agent": ">=1.1.0",
         "@earendil-works/pi-tui": "*",
       },
     },
@@ -182,6 +183,20 @@
     "@google/genai": ["@google/genai@2.21.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q=="],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
+
+    "@landstrip/landstrip-api": ["@landstrip/landstrip-api@0.19.8", "", { "dependencies": { "ipaddr.js": "^2.5.0" }, "optionalDependencies": { "@landstrip/landstrip-darwin-arm64": "0.19.8", "@landstrip/landstrip-darwin-x64": "0.19.8", "@landstrip/landstrip-linux-arm64": "0.19.8", "@landstrip/landstrip-linux-x64": "0.19.8", "@landstrip/landstrip-win32-arm64": "0.19.8", "@landstrip/landstrip-win32-x64": "0.19.8" }, "bin": { "landstrip": "bin/landstrip.js" } }, "sha512-T4T7vq8vVg6ud4cRp5RL6wEH0aQUZiUquWtNDgOPkWoPAZ5uKXJembaR39HXadWMgNOUDmh4HRBqHo7BpV6kJw=="],
+
+    "@landstrip/landstrip-darwin-arm64": ["@landstrip/landstrip-darwin-arm64@0.19.8", "", { "os": "darwin", "cpu": "arm64" }, "sha512-IgXDRUOcmr4/Ru19RAxAVofmEKnQIKCZ/EoBU7TwuZYRg0WgOap+PLkxjyJgoH4V5SYejwOnrK6NicQc64wyuw=="],
+
+    "@landstrip/landstrip-darwin-x64": ["@landstrip/landstrip-darwin-x64@0.19.8", "", { "os": "darwin", "cpu": "x64" }, "sha512-7VFSjWWD2f2GE8yaVrm4mRh8ud+f5xlLive+t4XHLSmsUSHJ1n6KTrjHAeWSGZ9kqffeBUVNec3eey1nPdbMHA=="],
+
+    "@landstrip/landstrip-linux-arm64": ["@landstrip/landstrip-linux-arm64@0.19.8", "", { "os": "linux", "cpu": "arm64" }, "sha512-XcOSZl2kFDZ65ab8BwX92OSKGrEDn3gmlhGdeCATnejxc4eXJPvctNGRT16TJLXdN4xahcqwkyW5i/EcmB7KCA=="],
+
+    "@landstrip/landstrip-linux-x64": ["@landstrip/landstrip-linux-x64@0.19.8", "", { "os": "linux", "cpu": "x64" }, "sha512-rWZXbwMrQ2secVKVGaKQqLRMLBvow4og1VD6bKtRux/yAgxkGm55nuXdqnRCw3T/cn9DOI4ICXGWgBkRpxbv6g=="],
+
+    "@landstrip/landstrip-win32-arm64": ["@landstrip/landstrip-win32-arm64@0.19.8", "", { "os": "win32", "cpu": "arm64" }, "sha512-KvfyH5ld2kJERnXTNCPBpvuC5k7ufXBI0hv/iiQx1gijSYqx56pCefNj82B4MckHN+MPODRJxPTznrYTyn4Okw=="],
+
+    "@landstrip/landstrip-win32-x64": ["@landstrip/landstrip-win32-x64@0.19.8", "", { "os": "win32", "cpu": "x64" }, "sha512-1x1+BM9llGSwcbSd9f/7aR+kaKTJnmYXzZpyxKj02kMF8QIqDvi2z78DCkV3SbH5t7tXr2F/anWHjqZPTQrMXg=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.149.0", "", {}, "sha512-Efcc+iF0j3Bf67YjEqIqWXbX5XddXoK/Mw4K1/JuXwRCZ8N16VR7iT23nlCc9XrveFVh/E5Rqs2StT0V8v9LdA=="],
 
@@ -427,6 +442,8 @@
 
     "ignore": ["ignore@7.0.8", "", {}, "sha512-YYNsSlXBjMk92SKnkwvB5LOVSa6OznlFUGcsvrFgNJbJCd0M1XKeFVRc8ZByeCqz32FivYNHJVooLmdqrmvp/Q=="],
 
+    "ipaddr.js": ["ipaddr.js@2.5.0", "", {}, "sha512-aq+t5NAc+cS6rZQQVWC2x98CPqGtKKTMDd4Gaodv0wShnItdKg/51djkGJ1hqH+Oy0ivDftCbSLCQob8zso01w=="],
+
     "isexe": ["isexe@2.0.0", "", {}, "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="],
 
     "jiti": ["jiti@2.7.0", "", { "bin": "lib/jiti-cli.mjs" }, "sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ=="],
@@ -434,6 +451,8 @@
     "json-bigint": ["json-bigint@1.0.0", "", { "dependencies": { "bignumber.js": "^9.0.0" } }, "sha512-SiPv/8VpZuWbvLSMtTDU8hEfrZWg/mH/nV/b4o0CYbSxu1UIQPLdwKOCIyLQX+VIPO5vrLX3i8qtqFyhdPSUSQ=="],
 
     "json-schema-to-ts": ["json-schema-to-ts@3.1.1", "", { "dependencies": { "@babel/runtime": "^7.18.3", "ts-algebra": "^2.0.0" } }, "sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g=="],
+
+    "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
 
     "jwa": ["jwa@2.0.1", "", { "dependencies": { "buffer-equal-constant-time": "^1.0.1", "ecdsa-sig-formatter": "1.0.11", "safe-buffer": "^5.0.1" } }, "sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg=="],
 
@@ -508,6 +527,8 @@
     "path-key": ["path-key@3.1.1", "", {}, "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="],
 
     "pathe": ["pathe@2.0.3", "", {}, "sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w=="],
+
+    "pi-landstrip": ["pi-landstrip@0.19.8", "", { "dependencies": { "@landstrip/landstrip-api": "^0.19.8", "jsonc-parser": "^3.3.1", "minimatch": "^10.2.5", "undici": "^8.9.0", "yaml": "^2.9.0" }, "peerDependencies": { "@earendil-works/pi-ai": ">=0.82.0", "@earendil-works/pi-coding-agent": ">=0.82.0", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-KZkOnhJfW3GPFdyYm4Bb6I6K2eICSptQlsRuZESbOZ/a/qiyqMZFNr4vi0PDnvLICTT+H2jg021yPOwLDqx1yQ=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 

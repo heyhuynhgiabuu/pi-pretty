@@ -17,6 +17,7 @@ import { createFffAutocompleteProvider } from "../src/autocomplete.js";
 import { CursorStore, fffFormatGrepText } from "../src/fff-helpers.js";
 import { resetSharedFffServiceForTests } from "../src/fff.js";
 import piPrettyExtension, { type PiPrettyDeps } from "../src/index.js";
+import { captureBashRenderer } from "./bash-renderer-harness.js";
 
 // =========================================================================
 // 1. Unit tests — pure functions
@@ -257,7 +258,8 @@ describe("piPrettyExtension integration", () => {
 			const result = await loadExtensions([join(extensionRoot, entry)], tempRoot);
 
 			expect(result.errors).toEqual([]);
-			expect([...result.extensions[0]!.tools.keys()].sort()).toEqual(["bash", "find", "grep", "read"]);
+			expect([...result.extensions[0]!.tools.keys()].sort()).toEqual(["find", "grep", "read"]);
+			expect(result.extensions[0]!.toolRenderers).toHaveLength(1);
 		} finally {
 			rmSync(tempRoot, { recursive: true, force: true });
 		}
@@ -306,6 +308,7 @@ describe("piPrettyExtension integration", () => {
 		events = new Map();
 		mockPi = {
 			registerTool: vi.fn((t: any) => tools.set(t.name, t)),
+			registerToolRenderer: captureBashRenderer(tools, mockToolFactory(bashExec)(process.cwd()) as any),
 			registerCommand: vi.fn((c: any) => {}),
 			registerFlag: vi.fn(),
 			getFlag: vi.fn(),

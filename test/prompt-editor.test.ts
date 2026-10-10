@@ -125,6 +125,7 @@ describe("prompt editor", () => {
 			registerMarkdownTransformer: () => {},
 			registerFlag: () => {},
 			registerTool: () => {},
+			registerToolRenderer: () => {},
 			registerCommand: () => {},
 			on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => handlers.set(name, handler),
 		};
