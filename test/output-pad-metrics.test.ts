@@ -167,7 +167,7 @@ describe("outputPad threading", () => {
 			.replaceAll("\u0000", "\n")
 			.split("\n")
 			.map(strip);
-		expect(rows.some((r) => r.startsWith("   ├── a.ts"))).toBe(true);
+		expect(rows.some((r) => /^ {3}├── .*a\.ts$/.test(r))).toBe(true);
 	});
 
 	it("read expanded line-number rows use the configured pad", () => {

@@ -23,6 +23,7 @@ import {
 	FG_LNUM,
 	FG_RULE,
 	FG_YELLOW,
+	fileIcon,
 	loadConfig,
 	MAX_HL_CHARS,
 	MAX_PREVIEW_LINES,
@@ -356,12 +357,17 @@ export function renderTree(text: string, _basePath: string): string {
 
 	for (let i = 0; i < show.length; i++) {
 		const entry = show[i].trim();
+		// SDK appends `[N entries limit reached…]` notices below the listing.
+		if (entry.startsWith("[") && entry.endsWith("]")) {
+			out.push(`${FG_DIM}${entry}${RST}`);
+			continue;
+		}
 		const isLast = i === show.length - 1 && total <= MAX_PREVIEW_LINES;
 		const prefix = isLast ? "└── " : "├── ";
 		const connector = `${FG_RULE}${prefix}${RST}`;
 		const isDir = entry.endsWith("/");
 		const name = isDir ? entry.slice(0, -1) : entry;
-		const icon = isDir ? dirIcon() : "";
+		const icon = isDir ? dirIcon() : fileIcon(name);
 		out.push(`${connector}${icon}${isDir ? `${FG_BLUE}\x1b[1m${name}${RST}` : name}`);
 	}
 
