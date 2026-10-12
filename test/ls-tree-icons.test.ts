@@ -45,14 +45,22 @@ describe("renderTree file icons", () => {
 		expect(out).toBe("├── a.ts\n└── b");
 	});
 
-	it("keeps SDK truncation notices out of the tree rows", async () => {
+	it("keeps SDK truncation notices outside the tree and closes the final entry", async () => {
 		vi.stubEnv("PRETTY_ICONS", "nerd");
 		const { renderTree } = await freshModules();
 
 		const out = strip(renderTree("a.ts\n[500 entries limit reached. Use limit=1000 for more]", "/p"));
-		const noticeRow = out.split("\n").find((r) => r.includes("entries limit reached"));
-		expect(noticeRow).toBeDefined();
-		expect(noticeRow?.startsWith("├──")).toBe(false);
-		expect(noticeRow?.startsWith("└──")).toBe(false);
+		const rows = out.split("\n");
+		expect(rows[0]).toMatch(/^└── .*a\.ts$/);
+		expect(rows[1]).toBe("[500 entries limit reached. Use limit=1000 for more]");
+	});
+
+	it("renders bracketed filenames as normal file entries", async () => {
+		vi.stubEnv("PRETTY_ICONS", "nerd");
+		const { renderTree, fileIcon } = await freshModules();
+
+		const icon = strip(fileIcon("[notes]")).trim();
+		const out = strip(renderTree("[notes]", "/p"));
+		expect(out).toBe(`└── ${icon} [notes]`);
 	});
 });
