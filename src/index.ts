@@ -24,6 +24,7 @@ import { createFffAutocompleteProvider } from "./autocomplete.js";
 import {
 	installClaudeChatGrouping,
 	installClaudeExternalToolRenderers,
+	setClaudeStyleAgentActive,
 	setClaudeStyleTheme,
 	withClaudeToolStyleApi,
 } from "./claude-style.js";
@@ -369,11 +370,13 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	pi.on("agent_start", async (_event: unknown, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
 		workingStreaming = true;
+		setClaudeStyleAgentActive(true);
 		workingController?.start();
 	});
 	const stopStreaming = async (_event: unknown, ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui") return;
 		workingStreaming = false;
+		setClaudeStyleAgentActive(false);
 		workingController?.stop();
 		stopThinkingShimmer();
 	};
