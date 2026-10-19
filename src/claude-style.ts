@@ -526,7 +526,27 @@ const hasThought = (component: any): boolean =>
 		),
 	);
 
-const isRunning = (tool: any): boolean => !tool.result || Boolean(tool.isPartial);
+/** Whether the host agent is between agent_start and agent_end. A restored session can
+ * contain tool calls whose result never arrived (pi killed mid-run): without this flag
+ * their group summary froze on a single spinner frame — "Running" that only shifted
+ * when a scroll forced a redraw. */
+let agentActive = false;
+
+/** Tool calls observed result-less while the agent was idle: restored dangling calls from a
+ * killed run. Recorded once, they stay "interrupted" even when a later agent run flips
+ * agentActive back on (their result will never arrive). */
+const interruptedToolCallIds = new Set<string>();
+
+export function setClaudeStyleAgentActive(active: boolean): void {
+	agentActive = active;
+}
+
+/** Live only while the host is actually running the agent; restored result-less calls
+ * are reported as interrupted instead of reading as perpetually "Running". */
+const isRunning = (tool: any): boolean =>
+	agentActive &&
+	!interruptedToolCallIds.has(String(tool.toolCallId ?? "")) &&
+	(!tool.result || Boolean(tool.isPartial));
 
 function toolLabel(tool: any): string {
 	const label = tool.toolDefinition?.label;
@@ -537,10 +557,12 @@ function summaryRow(members: any[], width: number): string[] {
 	const tools = members.filter(isToolComponent);
 	const running = tools.filter(isRunning);
 	const failed = tools.filter((tool) => Boolean(tool.result?.isError)).length;
+	const interrupted = tools.filter((tool) => !tool.result).length - running.filter((tool) => !tool.result).length;
 	const thoughts = members.filter(hasThought).length;
 	const parts = [fg("muted", plural(tools.length, "tool call"))];
 	if (thoughts > 0) parts.push(fg("muted", plural(thoughts, "thought")));
 	if (failed > 0) parts.push(fg("error", `${failed} failed`));
+	if (interrupted > 0) parts.push(fg("error", `${plural(interrupted, "call")} interrupted`));
 	if (running.length > 0) parts.push(fg("muted", toolLabel(running[running.length - 1])));
 	const icon = stateIcon(groupTheme, running.length > 0 ? "running" : failed > 0 ? "error" : "success");
 	const state = bold(fg("text", running.length > 0 ? "Running" : "Done"));
@@ -595,8 +617,34 @@ function groupComponent(owners: any[]): AnyComponent {
 	};
 }
 
+// Settled groups rebuild identical strings on every host render — once a
+// session is long, that is O(history) work per frame (pi-tui re-renders the
+// whole tree on every doRender, and requestRender ticks ~30x/s while
+// streaming). Cache each settled group's rows keyed by its member span;
+// groups with running tools re-render every frame (spinner/summary are live).
+interface CachedGroupRender {
+	component: AnyComponent;
+	rendered: string[];
+}
+const GROUP_RENDER_CACHE = new Map<string, CachedGroupRender>();
+const GROUP_RENDER_CACHE_MAX = 512;
+let lastGroupedChildCount = -1;
+
+function groupCacheKey(members: AnyComponent[], width: number): string {
+	const tools = members.filter(isToolComponent);
+	const first = String(tools[0]?.toolCallId ?? "");
+	const last = String(tools[tools.length - 1]?.toolCallId ?? "");
+	return `${width}|${members.length}|${first}|${last}`;
+}
+
 function renderGrouped(container: any, width: number): string[] {
 	const children: any[] = container.children;
+	// A shrinking child list means a session switch/fork — drop every cached group.
+	if (children.length < lastGroupedChildCount) {
+		GROUP_RENDER_CACHE.clear();
+		interruptedToolCallIds.clear();
+	}
+	lastGroupedChildCount = children.length;
 	const lines: string[] = [];
 	const layout: Array<{ component: AnyComponent; height: number }> = [];
 	const push = (component: AnyComponent, rendered: string[]): void => {
@@ -614,13 +662,32 @@ function renderGrouped(container: any, width: number): string[] {
 		}
 		const members = children.slice(index, end);
 		const tools = members.filter(isToolComponent);
+		// While idle, any result-less styled tool is a restored dangling call — mark it once.
+		if (!agentActive) {
+			for (const tool of tools) {
+				if (!tool.result && tool.toolCallId) interruptedToolCallIds.add(String(tool.toolCallId));
+			}
+		}
 		if (tools.length < MIN_GROUPED_TOOLS || tools.some((tool) => tool.expanded)) {
 			for (const member of members) push(member, member.render(width));
 		} else {
-			const summary = summaryRow(members, width);
-			const tree = treeRows(members, width);
-			const owners = [...summary.map(() => undefined), ...tree.owners];
-			push(groupComponent(owners), [...summary, ...tree.lines]);
+			const running = tools.some((tool) => isRunning(tool));
+			const key = groupCacheKey(members, width);
+			const cached = running ? undefined : GROUP_RENDER_CACHE.get(key);
+			if (cached) {
+				push(cached.component, cached.rendered);
+			} else {
+				const summary = summaryRow(members, width);
+				const tree = treeRows(members, width);
+				const owners = [...summary.map(() => undefined), ...tree.owners];
+				const component = groupComponent(owners);
+				const rendered = [...summary, ...tree.lines];
+				push(component, rendered);
+				if (!running) {
+					if (GROUP_RENDER_CACHE.size >= GROUP_RENDER_CACHE_MAX) GROUP_RENDER_CACHE.clear();
+					GROUP_RENDER_CACHE.set(key, { component, rendered });
+				}
+			}
 		}
 		index = end;
 	}
