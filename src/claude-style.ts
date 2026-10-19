@@ -626,9 +626,21 @@ interface CachedGroupRender {
 	component: AnyComponent;
 	rendered: string[];
 }
-const GROUP_RENDER_CACHE = new Map<string, CachedGroupRender>();
+/** Per-container: two containers can hold different components with identical toolCallIds
+ * (rebuilds, forked sessions) — sharing rows between them would point mouse owners at dead
+ * components. */
+const GROUP_RENDER_CACHE = new WeakMap<object, Map<string, CachedGroupRender>>();
 const GROUP_RENDER_CACHE_MAX = 512;
 let lastGroupedChildCount = -1;
+
+function groupCacheStore(container: object): Map<string, CachedGroupRender> {
+	let store = GROUP_RENDER_CACHE.get(container);
+	if (!store) {
+		store = new Map();
+		GROUP_RENDER_CACHE.set(container, store);
+	}
+	return store;
+}
 
 function groupCacheKey(members: AnyComponent[], width: number): string {
 	const tools = members.filter(isToolComponent);
@@ -641,7 +653,7 @@ function renderGrouped(container: any, width: number): string[] {
 	const children: any[] = container.children;
 	// A shrinking child list means a session switch/fork — drop every cached group.
 	if (children.length < lastGroupedChildCount) {
-		GROUP_RENDER_CACHE.clear();
+		GROUP_RENDER_CACHE.delete(container);
 		interruptedToolCallIds.clear();
 	}
 	lastGroupedChildCount = children.length;
@@ -673,7 +685,8 @@ function renderGrouped(container: any, width: number): string[] {
 		} else {
 			const running = tools.some((tool) => isRunning(tool));
 			const key = groupCacheKey(members, width);
-			const cached = running ? undefined : GROUP_RENDER_CACHE.get(key);
+			const store = groupCacheStore(container);
+			const cached = running ? undefined : store.get(key);
 			if (cached) {
 				push(cached.component, cached.rendered);
 			} else {
@@ -684,8 +697,8 @@ function renderGrouped(container: any, width: number): string[] {
 				const rendered = [...summary, ...tree.lines];
 				push(component, rendered);
 				if (!running) {
-					if (GROUP_RENDER_CACHE.size >= GROUP_RENDER_CACHE_MAX) GROUP_RENDER_CACHE.clear();
-					GROUP_RENDER_CACHE.set(key, { component, rendered });
+					if (store.size >= GROUP_RENDER_CACHE_MAX) store.clear();
+					store.set(key, { component, rendered });
 				}
 			}
 		}
