@@ -24,6 +24,7 @@ import { createFffAutocompleteProvider } from "./autocomplete.js";
 import {
 	installClaudeChatGrouping,
 	installClaudeExternalToolRenderers,
+	setClaudeStyleAgentActive,
 	setClaudeStyleTheme,
 	withClaudeToolStyleApi,
 } from "./claude-style.js";
@@ -37,6 +38,7 @@ import {
 } from "./config.js";
 import { type FffInitOptions, type FffService, getSharedFffService, isFffRestrictedBasePathError } from "./fff.js";
 import { createPromptEditorClass } from "./prompt-editor.js";
+import { installUserRail, setUserRail } from "./user-rail.js";
 import { registerBashTool } from "./tools/bash.js";
 import { registerFindTool } from "./tools/find.js";
 import { registerGrepTool } from "./tools/grep.js";
@@ -312,6 +314,10 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 			installClaudeChatGrouping(claudeStyle);
 			installClaudeExternalToolRenderers(hostSdk.ToolExecutionComponent, claudeStyle);
 			installPromptEditor(ctx);
+			setUserRail(loadConfig().userRail);
+			installUserRail(
+				(hostSdk as unknown as { UserMessageComponent?: unknown }).UserMessageComponent,
+			);
 			ctx.ui.setToolsExpanded(false);
 			// Per-row hidden-thinking labels: intercept the host's label fan-out so
 			// each row keeps its own duration. Falls back to the global-label
@@ -369,11 +375,13 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	pi.on("agent_start", async (_event: unknown, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
 		workingStreaming = true;
+		setClaudeStyleAgentActive(true);
 		workingController?.start();
 	});
 	const stopStreaming = async (_event: unknown, ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui") return;
 		workingStreaming = false;
+		setClaudeStyleAgentActive(false);
 		workingController?.stop();
 		stopThinkingShimmer();
 	};
@@ -466,7 +474,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 					stopThinkingShimmer();
 					notifyThinkingFailure(ctx, error);
 				}
-			}, WORKING_INTERVAL_MS);
+			}, thinkingSettings.intervalMs ?? WORKING_INTERVAL_MS);
 		} catch (error: unknown) {
 			stopThinkingShimmer();
 			notifyThinkingFailure(ctx, error);

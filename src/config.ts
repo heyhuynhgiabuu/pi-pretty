@@ -82,10 +82,14 @@ export interface WorkingIndicatorConfig {
 	hint?: boolean;
 	/** Tint the indicator with a stable per-session accent color. */
 	sessionAccent?: boolean;
+	/** Frame advance interval in ms (>= 33). Higher = cheaper frames while the agent works. */
+	intervalMs?: number;
 }
 
 export interface ThinkingIndicatorConfig {
 	enabled?: boolean;
+	/** Label refresh interval in ms (>= 33). Higher = cheaper frames while thinking. */
+	intervalMs?: number;
 }
 
 export interface FffConfig {
@@ -105,6 +109,9 @@ export interface PrettyConfig {
 		tool?: string;
 		error?: string;
 	};
+	/** Left rail bar on user messages: `#rrggbb`, empty/absent disables. Reads as
+	 * "highlighted but transparent" on acrylic — one-cell bar, not a full-width bg. */
+	userRail?: string;
 	theme?: string;
 	icons?: string;
 	enableTools?: string[];
@@ -155,6 +162,7 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 		}
 		if (typeof parsed.theme === "string" && parsed.theme.trim() !== "") config.theme = parsed.theme;
 		if (parsed.toolStyle === "default" || parsed.toolStyle === "claudecode") config.toolStyle = parsed.toolStyle;
+		if (typeof parsed.userRail === "string" && /^#[0-9a-fA-F]{6}$/.test(parsed.userRail)) config.userRail = parsed.userRail;
 		if (typeof parsed.icons === "string") config.icons = parsed.icons;
 		const enableTools = normalizeToolList(parsed.enableTools);
 		const disableTools = normalizeToolList(parsed.disableTools);
@@ -192,6 +200,8 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 			if (typeof src.bold === "boolean") wi.bold = src.bold;
 			if (typeof src.hint === "boolean") wi.hint = src.hint;
 			if (typeof src.sessionAccent === "boolean") wi.sessionAccent = src.sessionAccent;
+			if (typeof src.intervalMs === "number" && Number.isFinite(src.intervalMs) && src.intervalMs >= 33)
+				wi.intervalMs = src.intervalMs;
 			if (Object.keys(wi).length > 0) config.workingIndicator = wi;
 		}
 		const thinkingIndicator = parsed.thinkingIndicator;
@@ -199,6 +209,8 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 			const ti: ThinkingIndicatorConfig = {};
 			const src = thinkingIndicator as Record<string, unknown>;
 			if (typeof src.enabled === "boolean") ti.enabled = src.enabled;
+			if (typeof src.intervalMs === "number" && Number.isFinite(src.intervalMs) && src.intervalMs >= 33)
+				ti.intervalMs = src.intervalMs;
 			if (Object.keys(ti).length > 0) config.thinkingIndicator = ti;
 		}
 		return config;
