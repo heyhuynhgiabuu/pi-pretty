@@ -64,6 +64,9 @@ export interface WorkingIndicatorSettings {
 	hint: boolean;
 	/** Tint mid/high tiers (and dim the spinner) with a per-session accent color. */
 	sessionAccent: boolean;
+	/** Frame advance interval in ms. Default: WORKING_INTERVAL_MS (33). Higher = fewer
+	 * full-tree renders per second while the agent works. */
+	intervalMs?: number;
 	/** True when the user explicitly configured `mid`/`high` — accent then stays off. */
 	tiersCustomized?: boolean;
 }
@@ -153,6 +156,9 @@ export function resolveWorkingIndicatorSettings(
 	if (typeof config?.bold === "boolean") settings.bold = config.bold;
 	if (typeof config?.hint === "boolean") settings.hint = config.hint;
 	if (typeof config?.sessionAccent === "boolean") settings.sessionAccent = config.sessionAccent;
+	const envInterval = Number.parseInt(env.PRETTY_WORKING_INTERVAL_MS ?? "", 10);
+	if (Number.isFinite(envInterval) && envInterval >= 33) settings.intervalMs = envInterval;
+	else if (typeof config?.intervalMs === "number" && config.intervalMs >= 33) settings.intervalMs = config.intervalMs;
 	settings.tiersCustomized = typeof config?.mid === "string" || typeof config?.high === "string";
 	return settings;
 }
@@ -463,6 +469,9 @@ export class WorkingWidget {
 
 export interface ThinkingIndicatorSettings {
 	enabled: boolean;
+	/** Label refresh interval in ms. Default: WORKING_INTERVAL_MS (33). Higher = fewer
+	 * full-tree renders per second while thinking — the main FPS lever on long sessions. */
+	intervalMs?: number;
 }
 
 export const THINKING_INDICATOR_DEFAULTS: ThinkingIndicatorSettings = { enabled: true };
@@ -479,6 +488,9 @@ export function resolveThinkingIndicatorSettings(
 	const envEnabled = envFlag(env.PRETTY_THINKING_INDICATOR);
 	if (envEnabled !== undefined) settings.enabled = envEnabled;
 	else if (typeof config?.enabled === "boolean") settings.enabled = config.enabled;
+	const envInterval = Number.parseInt(env.PRETTY_THINKING_INTERVAL_MS ?? "", 10);
+	if (Number.isFinite(envInterval) && envInterval >= 33) settings.intervalMs = envInterval;
+	else if (typeof config?.intervalMs === "number" && config.intervalMs >= 33) settings.intervalMs = config.intervalMs;
 	return settings;
 }
 
@@ -839,6 +851,7 @@ export async function installWorkingIndicator(
 		ansi,
 		bold: settings.bold,
 		spinnerColor,
+		intervalMs: settings.intervalMs,
 	});
 	if (frames.length === 0) return noopController;
 
