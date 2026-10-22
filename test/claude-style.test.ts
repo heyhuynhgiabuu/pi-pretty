@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	installClaudeChatGrouping,
 	installClaudeExternalToolRenderers,
+	setClaudeStyleAgentActive,
 	setClaudeStyleTheme,
 	withClaudeToolStyle,
 } from "../src/claude-style.js";
@@ -342,5 +343,211 @@ describe("claudecode tool style", () => {
 		const expandedCall = def.renderCall({ path: "a.ts" }, theme, { state: {}, expanded: true, outputPad: 1 } as any);
 		expect(strip(expandedCall.render(80)[0])).toBe(" ✓ Read (a.ts) (ctrl+o to collapse)");
 		toolsExpandKey.value = "";
+	});
+});
+
+describe("settled group cache", () => {
+	withClaudeToolStyle({ name: "read", label: "Read" });
+	const counted = (id: string, counter: { renders: number }, onExpand?: () => void) => ({
+		toolCallId: id,
+		toolName: "read",
+		result: {},
+		isPartial: false,
+		expanded: false,
+		setExpanded() {
+			onExpand?.();
+		},
+		render: () => {
+			counter.renders++;
+			return ["", ` ✓ Read (${id})`, "   └ 1 line"];
+		},
+	});
+	const chat = (tools: any[]): Container => {
+		const container = new Container();
+		for (const tool of tools) container.addChild(tool);
+		return container;
+	};
+
+	it("does not re-render settled groups on the next frame but keeps live ones live", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(true);
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		// A message between them keeps the live call out of the settled group, so the two cases
+		// are observable side by side: the group is cached, the running row re-renders.
+		const live = { ...counted("c", counter), result: undefined, isPartial: true };
+		const container = chat([counted("a", counter), counted("b", counter), { render: () => ["msg"] }, live]);
+		container.render(80);
+		const first = counter.renders;
+		counter.renders = 0;
+		container.render(80);
+		installClaudeChatGrouping(false);
+		expect(first).toBe(3);
+		// The settled group is served from the cache; only the running row renders again.
+		expect(counter.renders).toBe(1);
+	});
+
+	it("refreshes rows and mouse owners when the host rebuilds the transcript with the same ids", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(true);
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const container = chat([counted("a", counter), counted("b", counter)]);
+		expect(container.render(80).map(strip)[2]).toContain("Read (a)");
+
+		// fork / /tree navigation: chatContainer.clear() then renderInitialMessages()
+		let clicks = 0;
+		container.clear();
+		container.addChild(counted("a", counter, () => clicks++) as never);
+		container.addChild(counted("b", counter, () => clicks++) as never);
+		const lines = container.render(80).map(strip);
+		container.handleMouse({ type: "click", button: "left", x: 3, y: 4, width: 80, height: 7 } as never);
+		installClaudeChatGrouping(false);
+		expect(lines[2]).toContain("Read (a)");
+		expect(counter.renders).toBe(4);
+		expect(clicks).toBe(1);
+	});
+
+	it("keeps caching past the entry cap instead of clearing every entry", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(false);
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const container = new Container();
+		for (let group = 0; group < 520; group++) {
+			container.addChild({ render: () => [`msg ${group}`] } as never);
+			container.addChild(counted(`g${group}a`, counter) as never);
+			container.addChild(counted(`g${group}b`, counter) as never);
+		}
+		container.render(80);
+		counter.renders = 0;
+		container.render(80);
+		installClaudeChatGrouping(false);
+		// Only the groups past the cap re-render; the cached subset stays warm.
+		expect(counter.renders).toBeLessThan(520);
+	});
+
+	it("refreshes a group when one of its members is replaced in place", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(true);
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const container = chat([counted("a", counter), counted("b", counter), counted("c", counter)]);
+		container.render(80);
+		// The host swaps a middle component (updateDisplay rebuilds the children array in place).
+		(container as unknown as { children: unknown[] }).children[1] = {
+			...counted("b", counter),
+			render: () => ["", " ✓ Read (NEW-b)", "   └ 1 line"],
+		};
+		const lines = container.render(80).map(strip);
+		installClaudeChatGrouping(false);
+		expect(lines.join("\n")).toContain("NEW-b");
+	});
+
+	it("refreshes a group when a member result lands in place", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(true);
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const late = counted("b", counter) as Record<string, unknown>;
+		const container = chat([counted("a", counter), late]);
+		expect(container.render(80).map(strip)[1]).toBe("✓ Done (2 tool calls)");
+		// tool_execution_end mutates the component instead of replacing it
+		late.result = { isError: true };
+		late.render = () => ["", " ✗ Read (b)", "   └ boom"];
+		const lines = container.render(80).map(strip);
+		installClaudeChatGrouping(false);
+		expect(lines[1]).toBe("✗ Done (2 tool calls · 1 failed)");
+		expect(lines.join("\n")).toContain("boom");
+	});
+
+	it("rebuilds rows in the new palette after a theme change", () => {
+		const tagged = (tag: string) => ({ fg: (_k: string, t: string) => `[${tag}:${t}]`, bold: (t: string) => t });
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const container = chat([counted("a", counter), counted("b", counter)]);
+		setClaudeStyleTheme(tagged("A"));
+		const before = container.render(80)[1];
+		setClaudeStyleTheme(tagged("B"));
+		const after = container.render(80)[1];
+		installClaudeChatGrouping(false);
+		expect(before).toContain("[A:✓]");
+		expect(after).toContain("[B:✓]");
+	});
+});
+
+describe("restored dangling tool calls", () => {
+	withClaudeToolStyle({ name: "read", label: "Read" });
+	const restored = (id: string) => ({
+		toolCallId: id,
+		toolName: "read",
+		result: undefined as unknown,
+		isPartial: true,
+		expanded: false,
+		setExpanded() {},
+		render: () => ["", ` · Read (${id})`, "   └ 1 line"],
+	});
+	const settled = (id: string, isPartial = false) => ({
+		toolCallId: id,
+		toolName: "read",
+		result: {} as unknown,
+		isPartial,
+		expanded: false,
+		setExpanded() {},
+		render: () => ["", ` ✓ Read (${id})`, "   └ 1 line"],
+	});
+	const render = (tools: any[]): string[] => {
+		const container = new Container();
+		for (const tool of tools) container.addChild(tool);
+		installClaudeChatGrouping(true);
+		const lines = container.render(80).map(strip);
+		installClaudeChatGrouping(false);
+		return lines;
+	};
+
+	it("reports an interrupted group instead of a frozen Running spinner after a restart", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(false);
+		const lines = render([restored("a"), settled("b")]);
+		expect(lines[1]).toBe("✓ Done (2 tool calls · 1 call interrupted)");
+		expect(lines[2]).toContain("⊘ Read (a)");
+	});
+
+	it("marks a lone restored call, which has no group summary", () => {
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(false);
+		expect(render([restored("solo")]).join("\n")).toContain("⊘ Read (solo)");
+	});
+
+	it("replaces the state icon whatever the host indent and row colors are", () => {
+		// The icon is separated from the row text by padding and its own SGR, which is what the
+		// real host produces; a naive leading-match regex misses it.
+		const sgrTheme = { fg: (_k: string, t: string) => `\x1b[38;5;245m${t}\x1b[39m`, bold: (t: string) => t };
+		setClaudeStyleTheme(sgrTheme);
+		setClaudeStyleAgentActive(false);
+		installClaudeChatGrouping(true);
+		const chatA = new Container();
+		chatA.addChild({
+			...restored("solo"),
+			outputPad: 3,
+			render: () => ["", "    · Read (solo)", "   └ 1 line"],
+		} as never);
+		const lines = chatA.render(80).map(strip);
+		installClaudeChatGrouping(false);
+		expect(lines[1]).toBe("    ⊘ Read (solo)");
+	});
+
+	it("reads Running only while the agent runs, and keeps the mark across a later run", () => {
+		setClaudeStyleTheme(theme);
+		const live = { ...restored("live"), render: () => ["", " ⠋ Read (live)", "   └ 1 line"] };
+		setClaudeStyleAgentActive(true);
+		expect(render([live, settled("b")])[1]).toContain("Running (2 tool calls");
+
+		// A restored call marked while idle must not read "Running" in the next run.
+		setClaudeStyleAgentActive(false);
+		const dead = restored("dead");
+		render([dead, settled("b")]);
+		setClaudeStyleAgentActive(true);
+		expect(render([dead, settled("c", true)])[1]).toContain("1 call interrupted");
 	});
 });

@@ -24,6 +24,7 @@ import { createFffAutocompleteProvider } from "./autocomplete.js";
 import {
 	installClaudeChatGrouping,
 	installClaudeExternalToolRenderers,
+	resetClaudeStyleSessionState,
 	setClaudeStyleAgentActive,
 	setClaudeStyleTheme,
 	withClaudeToolStyleApi,
@@ -525,6 +526,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		perRowLabels = undefined;
 		thinkingElapsedMs.clear();
 		workingStreaming = false;
+		resetClaudeStyleSessionState();
 		// Intentionally keep the native FFF finder on session shutdown.
 		// Pi can emit shutdown/start during resume or session switching while the
 		// process keeps running. Native teardown, or dropping the JS handle while the

@@ -250,8 +250,8 @@ Set `"toolStyle": "claudecode"` for a Claude Code-like transcript (restart pi to
      └ 12 lines · ◷ 3.1s · timeout 300s
 ```
 
-- Collapsed tool calls are one `✓ Name (args)` row plus an `└` result row; a spinner shows while running, `·` while waiting, `✗` on failure. Ctrl+O (or a click) expands to the full pretty output.
-- Two or more consecutive tool calls fold into one `Done (…)` / `Running (…)` group. Click a tool in the group to expand it.
+- Collapsed tool calls are one `✓ Name (args)` row plus an `└` result row; a spinner shows while running, `·` while waiting, `✗` on failure, `⊘` for a call whose result never arrived. Ctrl+O (or a click) expands to the full pretty output.
+- Two or more consecutive tool calls fold into one `Done (…)` / `Running (…)` group. Click a tool in the group to expand it. A group only reads `Running` while the agent is actually running, so a session restored after a kill shows `Done (2 tool calls · 1 call interrupted)` rather than a spinner that never advances; settled groups are cached, so frame cost does not grow with transcript length.
 - Covers `read`, `bash`, `grep`, `find`, `ls`, and — through the host's renderer lookup, without re-registering them — `write`, `edit`, `apply_patch` (pi-diff), `codemode`, and `recall`. `+N` is shown in the success color and `-N` in the error color. Tools it does not style keep their own rendering and break a group.
 - Hidden thinking reads `thought 3s (ctrl+t to expand)`, user messages lose the `❯` prefix, and the input box drops its rounded border for plain rules with a flush-left `❯`.
 - `toolStyle` only changes presentation. It patches Pi's `ToolExecutionComponent` and chat `Container` render lookups, which are not public API; if Pi reshapes them the styling degrades to Pi's own rendering.
