@@ -245,6 +245,26 @@ describe("claudecode tool style", () => {
 			}
 		});
 
+		it("keeps the collapsed result row unpainted too when the body is unpainted", () => {
+			// The collapsed result row sits directly under the header. Painting it while the
+			// header is unpainted re-creates the detached look in a different place.
+			const BG = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "edit";
+			const result = (component.getResultRenderer() as any)(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				{ expanded: false },
+				bgTheme,
+				{ state: {}, outputPad: 1, args: { path: "a.ts" } },
+			);
+			const rows = result.render(40) as string[];
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+
+			expect(rows.some((r: string) => r.includes(BG))).toBe(false);
+		});
+
 		it("keeps an unpainted header a single row", () => {
 			const BG = "\x1b[48;2;30;30;46m";
 			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };

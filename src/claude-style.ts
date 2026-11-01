@@ -357,9 +357,17 @@ function buildCallRow(
 	});
 }
 
-function buildResultRow(theme: ThemeLike, ctx: RenderCtxLike, text: string, failed: boolean): AnyComponent {
+function buildResultRow(
+	theme: ThemeLike,
+	ctx: RenderCtxLike,
+	text: string,
+	failed: boolean,
+	paintsBackground = true,
+): AnyComponent {
 	return rowComponent((width) => {
-		const bg = failed ? BG_ERROR : BG_BASE;
+		// The collapsed result row sits directly under the header, so it shares the header's
+		// decision: painting it while the header is unpainted would detach the two.
+		const bg = !paintsBackground ? BG_UNSET : failed ? BG_ERROR : BG_BASE;
 		const connector = theme.fg("dim", "└ ");
 		const body = failed ? theme.fg("error", text) : text;
 		const line = fitLine(`${indentOf(ctx)}  ${connector}${body}`, width, theme);
@@ -428,14 +436,14 @@ function claudeRenderers(
 						.split("\n")
 						.find((line) => line.trim() !== "" && !CODEMODE_HEADER_LINE.test(line)) ?? "Error",
 				);
-				return buildResultRow(theme, ctx, message, true);
+				return buildResultRow(theme, ctx, message, true, bodyPaintsBackground);
 			}
 			const ms = elapsedMs(result, ctx);
 			const parts = [summarize(name, result, theme, ctx.args)];
 			if (ms !== undefined) parts.push(theme.fg("dim", `◷ ${formatSeconds(ms)}`));
 			// Labeled so a bash timeout limit is never mistaken for the measured duration.
 			if (typeof ctx.args?.timeout === "number") parts.push(theme.fg("dim", `timeout ${ctx.args.timeout}s`));
-			return buildResultRow(theme, ctx, parts.join(theme.fg("dim", " · ")), false);
+			return buildResultRow(theme, ctx, parts.join(theme.fg("dim", " · ")), false, bodyPaintsBackground);
 		},
 	};
 }
