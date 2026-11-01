@@ -21,7 +21,7 @@ const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Any test that paints resolves BG_BASE, which also switches row padding on. Leaving it set
 // makes later tests render padded rows, so it must be cleared after every test, not only inside
-// the block that paints. Without this the file only passes in its declared order.
+// the block that paints.
 afterEach(() => resetBaseBackground());
 
 describe("claudecode tool style", () => {
@@ -170,9 +170,12 @@ describe("claudecode tool style", () => {
 	describe("write/edit from another extension", () => {
 		const plain = (text: string) => text.replace(/<\/?[a-z]*>/gi, "");
 		const tagged = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (t: string) => t };
-		// Painting a background also switches row padding on, so leaving BG_BASE set would
-		// pad the rows of every later test in this file.
-		afterEach(() => resetBaseBackground());
+		// `plainBodyTool` installs the external renderers and `prettyTool`/the palette tests leave
+		// BG_BASE (and therefore row padding) set; either leak changes how the next test renders.
+		afterEach(() => {
+			resetBaseBackground();
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+		});
 
 		/** A pi-pretty tool (body painted via fillToolBody) wearing the claude rows. */
 		const prettyTool = () =>
