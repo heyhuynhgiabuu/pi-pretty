@@ -14,7 +14,7 @@
 
 import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
+import { BG_BASE, BG_ERROR, BG_UNSET, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
 import { fillToolBackground } from "./render.js";
 import type { RenderCtxLike, ThemeLike } from "./types.js";
@@ -330,16 +330,22 @@ function buildCallRow(
 	hint = "",
 	bodyLines: string[] = [],
 ): AnyComponent {
-	// Expanded results delegate to each tool's own renderer, which fills its body with BG_BASE.
-	// Without a fill here the header row stays unpainted and the body looks detached from it.
+	// Expanded results delegate to each tool's own renderer, which fills its body with BG_BASE; the
+	// header must be painted too or the two look detached. Rows are padded to `width` only when a
+	// background is actually painted: the delegated bodies render through pi-tui's Text, which pads
+	// every line, so an unpadded strip would end its colour mid-row. With no configured background
+	// the trailing spaces would be invisible but would still reach the clipboard and the tests.
 	return rowComponent((width) => {
 		const bg = ctx.isError ? BG_ERROR : BG_BASE;
+		const pad = bg !== BG_UNSET;
 		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("toolTitle", label))}`;
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
 		const indent = `${indentOf(ctx)}  `;
+		const fill = (line: string, bgAnsi: string): string =>
+			pad ? fillToolBackground(line, bgAnsi, width, "") : fillToolBackground(line, bgAnsi);
 		return [
-			fillToolBackground(fitLine(`${head}${body}${hint}`, width, theme), bg),
-			...bodyLines.map((line) => fillToolBackground(fitLine(`${indent}${line}`, width, theme), bg)),
+			fill(fitLine(`${head}${body}${hint}`, width, theme), bg),
+			...bodyLines.map((line) => fill(fitLine(`${indent}${line}`, width, theme), bg)),
 		];
 	});
 }
@@ -349,7 +355,8 @@ function buildResultRow(theme: ThemeLike, ctx: RenderCtxLike, text: string, fail
 		const bg = failed ? BG_ERROR : BG_BASE;
 		const connector = theme.fg("dim", "└ ");
 		const body = failed ? theme.fg("error", text) : text;
-		return [fillToolBackground(fitLine(`${indentOf(ctx)}  ${connector}${body}`, width, theme), bg)];
+		const line = fitLine(`${indentOf(ctx)}  ${connector}${body}`, width, theme);
+		return [bg !== BG_UNSET ? fillToolBackground(line, bg, width, "") : fillToolBackground(line, bg)];
 	});
 }
 

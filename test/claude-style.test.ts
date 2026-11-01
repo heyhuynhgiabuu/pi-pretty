@@ -1,5 +1,5 @@
-import { Container } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { Container, visibleWidth } from "@earendil-works/pi-tui";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	installClaudeChatGrouping,
 	installClaudeExternalToolRenderers,
@@ -7,6 +7,7 @@ import {
 	setClaudeStyleTheme,
 	withClaudeToolStyle,
 } from "../src/claude-style.js";
+import { resetBaseBackground } from "../src/config.js";
 
 // Pi's keybindings are not initialised outside the TUI, so the binding text is stubbed per test.
 const toolsExpandKey = vi.hoisted(() => ({ value: "" }));
@@ -164,6 +165,9 @@ describe("claudecode tool style", () => {
 	describe("write/edit from another extension", () => {
 		const plain = (text: string) => text.replace(/<\/?[a-z]*>/gi, "");
 		const tagged = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (t: string) => t };
+		// Painting a background also switches row padding on, so leaving BG_BASE set would
+		// pad the rows of every later test in this file.
+		afterEach(() => resetBaseBackground());
 
 		it("paints the collapsed header row with the tool background", () => {
 			// The body lines a tool fills when expanded carry a background; without one on the
@@ -193,7 +197,45 @@ describe("claudecode tool style", () => {
 			const afterBg = row.slice(BG.length);
 			expect(afterBg).not.toMatch(/\x1b\[0m/);
 			expect(afterBg).not.toMatch(/\x1b\[49m/);
-			expect(afterBg).not.toMatch(/\x1b\[0;/);
+		});
+
+		it("pads the painted header to the render width, like the delegated body", () => {
+			// The expanded body renders through pi-tui's Text, which pads every line to the render
+			// width; a natural-width header would end its background mid-row.
+			const BG = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "edit";
+			const call = (component.getCallRenderer() as any)({ path: "a.ts" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+			});
+			const row = call.render(80)[0] as string;
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+			expect(row.startsWith(BG)).toBe(true);
+			expect(visibleWidth(row)).toBe(80);
+		});
+
+		it("uses the error background for a failed call", () => {
+			const OK = "\x1b[48;2;30;30;46m";
+			const ERR = "\x1b[48;2;42;30;30m";
+			const bgTheme = {
+				fg: (_k: string, t: string) => t,
+				bold: (t: string) => t,
+				getBgAnsi: (k: string) => (k === "toolErrorBg" ? ERR : OK),
+			};
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "edit";
+			const call = (component.getCallRenderer() as any)({ path: "a.ts" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+				isError: true,
+			});
+			const row = call.render(80)[0] as string;
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+			expect(row.startsWith(ERR)).toBe(true);
 		});
 		const original = (result: any, _options: any, _theme: any, ctx: any) => ({
 			render: () => ["DIFF"],

@@ -25,6 +25,8 @@ export const FG_BLUE = "\x1b[38;2;100;140;220m";
 export const FG_MUTED = "\x1b[38;2;139;148;158m";
 
 const BG_DEFAULT = "\x1b[49m";
+/** The unpainted sentinel: rows skip full-width padding while no background is configured. */
+export const BG_UNSET = BG_DEFAULT;
 export let BG_BASE = BG_DEFAULT;
 export let BG_ERROR = BG_DEFAULT;
 
@@ -277,6 +279,13 @@ function applyPrettyConfigBg(agentDir?: string): boolean {
 	BG_ERROR = config.background.error ? (hexToAnsiBg(config.background.error) ?? toolBg) : toolBg;
 	RST = "\x1b[0m";
 	return true;
+}
+
+/** Restore the unpainted defaults. Tests that paint a background must call this when done,
+ * because BG_BASE also decides whether rows are padded to the render width. */
+export function resetBaseBackground(): void {
+	BG_BASE = BG_DEFAULT;
+	BG_ERROR = BG_DEFAULT;
 }
 
 export function resolveBaseBackground(theme: BgThemeLike | null | undefined): void {
