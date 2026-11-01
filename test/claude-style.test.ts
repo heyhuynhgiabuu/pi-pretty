@@ -818,6 +818,36 @@ describe("restored dangling tool calls", () => {
 		expect(joined).not.toMatch(/38;2;183;141m/);
 	});
 
+	it("strips backgrounds from grouped rows without damaging palette foregrounds", () => {
+		// Same contract as above for the `38;5` path: the palette index travels with its
+		// introducer, so a grouped row must not lose it either.
+		const BG = "\x1b[48;2;30;30;46m";
+		const FG = "\x1b[38;5;42m";
+		const palette = { fg: (_k: string, t: string) => `${FG}${t}\x1b[39m`, bold: (t: string) => t, getBgAnsi: () => BG };
+		setClaudeStyleTheme(palette);
+		setClaudeStyleAgentActive(false);
+		installClaudeChatGrouping(true);
+		const member = (id: string) => {
+			const def = withClaudeToolStyle({
+				name: "read",
+				label: "Read",
+				renderResult: () => ({ render: () => ["1 line"] }),
+			});
+			const rows = (def.renderCall as any)({ path: `${id}.ts` }, palette, { state: {}, outputPad: 1 }).render(40);
+			return { toolCallId: id, toolName: "read", result: {}, isPartial: false, outputPad: 1, render: () => rows };
+		};
+		const chat = new Container();
+		chat.addChild(member("a") as never);
+		chat.addChild(member("b") as never);
+		const joined = (chat.render(40) as string[]).join("\n");
+		installClaudeChatGrouping(false);
+		resetBaseBackground();
+
+		expect(joined).toContain(FG);
+		expect(joined).not.toMatch(/38;5m/);
+		expect(joined).not.toMatch(/48;[25];/);
+	});
+
 	it("replaces the state icon whatever the host indent and row colors are", () => {
 		// The icon is separated from the row text by padding and its own SGR, which is what the
 		// real host produces; a naive leading-match regex misses it.
