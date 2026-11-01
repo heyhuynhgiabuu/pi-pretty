@@ -33,9 +33,13 @@ export class FffInitError extends Error {
 }
 
 export function isFffRestrictedBasePathError(error: unknown, options: FffInitOptions): boolean {
-	if (!(error instanceof FffInitError) || error.kind !== "restricted-base-path") return false;
-	if (error.restrictedScope === "home") return !options.enableHomeDirScanning;
-	if (error.restrictedScope === "root") return !options.enableFsRootScanning;
+	if (!(error instanceof Error) || error.name !== "FffInitError") return false;
+	// FffService persists across extension reloads on globalThis, so a reloaded module may
+	// receive an FffInitError constructed from another load's class object; instanceof would
+	// wrongly fail there. Check the structural name instead.
+	if ((error as FffInitError).kind !== "restricted-base-path") return false;
+	if ((error as FffInitError).restrictedScope === "home") return !options.enableHomeDirScanning;
+	if ((error as FffInitError).restrictedScope === "root") return !options.enableFsRootScanning;
 	return false;
 }
 
