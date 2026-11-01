@@ -14,7 +14,9 @@
 
 import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
+import { fillToolBackground } from "./render.js";
 import type { RenderCtxLike, ThemeLike } from "./types.js";
 
 type AnyFn = (...args: any[]) => any;
@@ -328,22 +330,26 @@ function buildCallRow(
 	hint = "",
 	bodyLines: string[] = [],
 ): AnyComponent {
+	// Expanded results delegate to each tool's own renderer, which fills its body with BG_BASE.
+	// Without a fill here the header row stays unpainted and the body looks detached from it.
 	return rowComponent((width) => {
-		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("text", label))}`;
+		const bg = ctx.isError ? BG_ERROR : BG_BASE;
+		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("toolTitle", label))}`;
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
 		const indent = `${indentOf(ctx)}  `;
 		return [
-			fitLine(`${head}${body}${hint}`, width, theme),
-			...bodyLines.map((line) => fitLine(`${indent}${line}`, width, theme)),
+			fillToolBackground(fitLine(`${head}${body}${hint}`, width, theme), bg),
+			...bodyLines.map((line) => fillToolBackground(fitLine(`${indent}${line}`, width, theme), bg)),
 		];
 	});
 }
 
 function buildResultRow(theme: ThemeLike, ctx: RenderCtxLike, text: string, failed: boolean): AnyComponent {
 	return rowComponent((width) => {
+		const bg = failed ? BG_ERROR : BG_BASE;
 		const connector = theme.fg("dim", "└ ");
 		const body = failed ? theme.fg("error", text) : text;
-		return [fitLine(`${indentOf(ctx)}  ${connector}${body}`, width, theme)];
+		return [fillToolBackground(fitLine(`${indentOf(ctx)}  ${connector}${body}`, width, theme), bg)];
 	});
 }
 
@@ -365,6 +371,7 @@ const codemodeSource: CallBody = (args) =>
 function claudeRenderers(name: string, label: string, original?: AnyFn, expandedCallBody?: CallBody) {
 	return {
 		renderCall(args: Record<string, unknown>, theme: ThemeLike, ctx: RenderCtxLike) {
+			resolveBaseBackground(theme);
 			const state: ToolState = ctx.isError
 				? "error"
 				: ctx.isPartial
@@ -389,6 +396,7 @@ function claudeRenderers(name: string, label: string, original?: AnyFn, expanded
 			ctx: RenderCtxLike,
 		) {
 			if (options?.isPartial) return rowComponent(() => []);
+			resolveBaseBackground(theme);
 			if (ctx.expanded && original) return original(result, options, theme, ctx);
 			if (ctx.isError) {
 				const message = oneLine(
@@ -589,7 +597,7 @@ function summaryRow(members: any[], width: number): string[] {
 	if (thoughts > 0) parts.push(fg("muted", plural(thoughts, "thought")));
 	if (failed > 0) parts.push(fg("error", `${failed} failed`));
 	if (interrupted > 0) parts.push(fg("error", `${plural(interrupted, "call")} interrupted`));
-	if (running.length > 0) parts.push(fg("muted", toolLabel(running[running.length - 1])));
+	if (running.length > 0) parts.push(fg("toolTitle", toolLabel(running[running.length - 1])));
 	const icon = stateIcon(groupTheme, running.length > 0 ? "running" : failed > 0 ? "error" : "success");
 	const state = bold(fg("text", running.length > 0 ? "Running" : "Done"));
 	const row = `${icon} ${state} ${fg("dim", "(")}${parts.join(fg("dim", " · "))}${fg("dim", ")")}${toggleHint(groupTheme, "expand")}`;

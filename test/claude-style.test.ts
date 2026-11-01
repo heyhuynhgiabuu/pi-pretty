@@ -162,8 +162,30 @@ describe("claudecode tool style", () => {
 	});
 
 	describe("write/edit from another extension", () => {
-		const plain = (text: string) => text.replace(/<\/?[a-z]*>/g, "");
+		const plain = (text: string) => text.replace(/<\/?[a-z]*>/gi, "");
 		const tagged = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (t: string) => t };
+
+		it("paints the collapsed header row with the tool background", () => {
+			// The body lines a tool fills when expanded carry a background; without one on the
+			// header row the two look detached. Fake the theme so the bg is observable.
+			const BG = "\x1b[48;2;30;30;46m";
+			const bgTheme = {
+				fg: (_k: string, t: string) => t,
+				bold: (t: string) => t,
+				getBgAnsi: () => BG,
+				bg: (_k: string, t: string) => BG + t,
+			};
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "edit";
+			const call = (component.getCallRenderer() as any)({ path: "a.ts" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+			});
+			const row = call.render(80)[0] as string;
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+			expect(row.startsWith(BG)).toBe(true);
+		});
 		const original = (result: any, _options: any, _theme: any, ctx: any) => ({
 			render: () => ["DIFF"],
 			seen: ctx.lastComponent,
@@ -246,7 +268,7 @@ describe("claudecode tool style", () => {
 				tagged,
 				{ state: {}, outputPad: 1 },
 			);
-			expect(plain(patchCall.render(80)[0])).toContain("Apply patch (a.ts, +2 more)");
+			expect(plain(patchCall.render(100)[0])).toContain("Apply patch (a.ts, +2 more)");
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
 		});
 
