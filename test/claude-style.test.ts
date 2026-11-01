@@ -19,6 +19,11 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 const theme = { fg: (_k: string, t: string) => t, bold: (t: string) => t };
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
+// Any test that paints resolves BG_BASE, which also switches row padding on. Leaving it set
+// makes later tests render padded rows, so it must be cleared after every test, not only inside
+// the block that paints. Without this the file only passes in its declared order.
+afterEach(() => resetBaseBackground());
+
 describe("claudecode tool style", () => {
 	const def = withClaudeToolStyle({
 		name: "read",
