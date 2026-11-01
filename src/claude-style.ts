@@ -30,26 +30,36 @@ const isImageLine = (line: string): boolean => IMAGE_LINE_RE.test(line);
 const LEADING_SPACE_RE = new RegExp(`^((?:${String.fromCharCode(27)}\\[[0-9;]*m)*) +`);
 const stripAnsi = (text: string): string => text.replace(ANSI_RE, "");
 
-/** Drop background SGR parameters, keeping colours, so a member row can join a plain group. */
-const BG_PARAM_RE = new RegExp(`${String.fromCharCode(27)}\\[((?:\\d+;)*\\d*)m`, "g");
+/**
+ * Drop background SGR parameters so a member row can join a plain group, keeping its colours.
+ * Mirrors `preserveBoxBackground`'s parsing: `38` keeps its whole argument list (a red, green or
+ * blue channel landing in 40-49 or 100-107 must not be read as a background code) while `48`
+ * drops its own arguments with it.
+ */
+const BG_PARAM_RE = new RegExp(`${String.fromCharCode(27)}\\[([0-9;]*)m`, "g");
 const stripBackground = (text: string): string =>
 	text.replace(BG_PARAM_RE, (seq, params: string) => {
 		if (!params) return seq;
 		const parts = params.split(";").filter(Boolean);
 		const kept: string[] = [];
-		for (let i = 0; i < parts.length; i++) {
+		let i = 0;
+		while (i < parts.length) {
 			const code = Number(parts[i]);
-			if (code === 49 || (code >= 40 && code <= 47) || (code >= 100 && code <= 107)) continue;
-			if (code === 48) {
-				// Extended background: skip 48;5;n and 48;2;r;g;b along with their arguments.
-				if (parts[i + 1] === "5") i += 2;
-				else if (parts[i + 1] === "2") i += 4;
-				else i += 1;
-				continue;
+			if (code === 38) {
+				const arity = parts[i + 1] === "5" ? 3 : parts[i + 1] === "2" ? 5 : 1;
+				kept.push(...parts.slice(i, i + arity));
+				i += arity;
+			} else if (code === 48) {
+				i += parts[i + 1] === "5" ? 3 : parts[i + 1] === "2" ? 5 : 1;
+			} else if (code === 49 || (code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+				i++;
+			} else {
+				kept.push(parts[i]);
+				i++;
 			}
-			kept.push(parts[i]);
 		}
-		return kept.length > 0 ? `${String.fromCharCode(27)}[${kept.join(";")}m` : "";
+		if (kept.length === 0) return params === "0" ? seq : "";
+		return `${String.fromCharCode(27)}[${kept.join(";")}m`;
 	});
 
 const PLAIN_THEME: ThemeLike = { fg: (_color, text) => text, bold: (text) => text };

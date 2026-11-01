@@ -290,7 +290,12 @@ describe("claudecode tool style", () => {
 					bgTheme,
 					{ state: {}, outputPad: 1, args: { path: "a.ts" }, isError },
 				);
-				return (result.render(40) as string[])[0];
+				const rows = result.render(40) as string[];
+				// The collapsed result is a single row; a blank padded row would satisfy the
+				// prefix and width checks below without being the result.
+				expect(rows).toHaveLength(1);
+				expect(strip(rows[0])).toContain("└");
+				return rows[0];
 			};
 
 			const success = render(false);
@@ -709,6 +714,52 @@ describe("restored dangling tool calls", () => {
 		setClaudeStyleTheme(theme);
 		setClaudeStyleAgentActive(false);
 		expect(render([restored("solo")]).join("\n")).toContain("⊘ Read (solo)");
+	});
+
+	it("strips backgrounds from grouped rows without damaging truecolor foregrounds", () => {
+		// Group members are reduced to plain rows under a plain summary. Stripping must remove the
+		// background while leaving an extended foreground's arguments intact - a red/green/blue
+		// channel in 40-49 or 100-107 is not a background code.
+		const BG = "\x1b[48;2;30;30;46m";
+		const FG = "\x1b[38;2;104;183;141m"; // Pi's dark `success`
+		const truecolor = {
+			fg: (_k: string, t: string) => `${FG}${t}\x1b[39m`,
+			bold: (t: string) => t,
+			getBgAnsi: () => BG,
+		};
+		setClaudeStyleTheme(truecolor);
+		setClaudeStyleAgentActive(false);
+		installClaudeChatGrouping(true);
+		const member = (id: string) => {
+			const def = withClaudeToolStyle({
+				name: "read",
+				label: "Read",
+				renderResult: () => ({ render: () => ["1 line"] }),
+			});
+			const rows = (def.renderCall as any)({ path: `${id}.ts` }, truecolor, {
+				state: {},
+				outputPad: 1,
+			}).render(40);
+			return {
+				toolCallId: id,
+				toolName: "read",
+				result: {},
+				isPartial: false,
+				outputPad: 1,
+				render: () => rows,
+			};
+		};
+		const chat = new Container();
+		chat.addChild(member("a") as never);
+		chat.addChild(member("b") as never);
+		const joined = (chat.render(40) as string[]).join("\n");
+		installClaudeChatGrouping(false);
+		resetBaseBackground();
+
+		expect(joined).toContain(FG);
+		expect(joined).not.toMatch(/48;[25];/);
+		// A mangled foreground would drop a channel: 38;2;183;141.
+		expect(joined).not.toMatch(/38;2;183;141m/);
 	});
 
 	it("replaces the state icon whatever the host indent and row colors are", () => {
