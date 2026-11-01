@@ -169,9 +169,12 @@ describe("claudecode tool style", () => {
 			// The body lines a tool fills when expanded carry a background; without one on the
 			// header row the two look detached. Fake the theme so the bg is observable.
 			const BG = "\x1b[48;2;30;30;46m";
+			// A theme that emits a bare ESC[0m after every segment. Only fillToolBackground's
+			// preserveBoxBackground rewrites those into a bg-preserving reset, so a hand-rolled
+			// `bg + line` would drop the background mid-row and fail the assertion below.
 			const bgTheme = {
-				fg: (_k: string, t: string) => t,
-				bold: (t: string) => t,
+				fg: (_k: string, t: string) => `\x1b[38;5;245m${t}\x1b[0m`,
+				bold: (t: string) => `\x1b[1m${t}\x1b[0m`,
 				getBgAnsi: () => BG,
 				bg: (_k: string, t: string) => BG + t,
 			};
@@ -184,7 +187,13 @@ describe("claudecode tool style", () => {
 			});
 			const row = call.render(80)[0] as string;
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
+
 			expect(row.startsWith(BG)).toBe(true);
+			// Nothing may clear the background after the prefix: no full reset, no bg-default.
+			const afterBg = row.slice(BG.length);
+			expect(afterBg).not.toMatch(/\x1b\[0m/);
+			expect(afterBg).not.toMatch(/\x1b\[49m/);
+			expect(afterBg).not.toMatch(/\x1b\[0;/);
 		});
 		const original = (result: any, _options: any, _theme: any, ctx: any) => ({
 			render: () => ["DIFF"],
