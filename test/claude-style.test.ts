@@ -169,50 +169,59 @@ describe("claudecode tool style", () => {
 		// pad the rows of every later test in this file.
 		afterEach(() => resetBaseBackground());
 
-		it("paints the collapsed header row with the tool background", () => {
-			// The body lines a tool fills when expanded carry a background; without one on the
-			// header row the two look detached. Fake the theme so the bg is observable.
+		/** A pi-pretty tool (body painted via fillToolBody) wearing the claude rows. */
+		const prettyTool = () =>
+			withClaudeToolStyle({ name: "read", label: "Read", renderResult: () => ({ render: () => ["body"] }) });
+		/** Pi's built-in edit: registered elsewhere, so the header opts out of painting. */
+		const plainBodyTool = () => {
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "edit";
+			return { renderCall: component.getCallRenderer() as any };
+		};
+
+		it("paints the header of a tool whose body is painted", () => {
+			// The expanded body carries a background; without one on the header the two look
+			// detached. A theme emitting a bare ESC[0m per segment also pins that the fill goes
+			// through preserveBoxBackground - a hand-rolled `bg + line` would drop it mid-row.
 			const BG = "\x1b[48;2;30;30;46m";
-			// A theme that emits a bare ESC[0m after every segment. Only fillToolBackground's
-			// preserveBoxBackground rewrites those into a bg-preserving reset, so a hand-rolled
-			// `bg + line` would drop the background mid-row and fail the assertion below.
 			const bgTheme = {
 				fg: (_k: string, t: string) => `\x1b[38;5;245m${t}\x1b[0m`,
 				bold: (t: string) => `\x1b[1m${t}\x1b[0m`,
 				getBgAnsi: () => BG,
 				bg: (_k: string, t: string) => BG + t,
 			};
-			installClaudeExternalToolRenderers(FakeToolComponent, true);
-			const component = new FakeToolComponent();
-			component.toolName = "edit";
-			const call = (component.getCallRenderer() as any)({ path: "a.ts" }, bgTheme, {
-				state: {},
-				outputPad: 1,
-			});
+			const tool = prettyTool();
+			const call = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 });
 			const row = call.render(80)[0] as string;
-			installClaudeExternalToolRenderers(FakeToolComponent, false);
 
 			expect(row.startsWith(BG)).toBe(true);
-			// Nothing may clear the background after the prefix: no full reset, no bg-default.
 			const afterBg = row.slice(BG.length);
 			expect(afterBg).not.toMatch(/\x1b\[0m/);
 			expect(afterBg).not.toMatch(/\x1b\[49m/);
 		});
 
-		it("pads the painted header to the render width, like the delegated body", () => {
-			// The expanded body renders through pi-tui's Text, which pads every line to the render
+		it("leaves the header unpainted when the tool's own body is unpainted", () => {
+			// Pi's built-in edit/write render a plain Text with no background. A painted header
+			// above an unpainted body is the same mismatch, only inverted.
+			const BG = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
+			const tool = plainBodyTool();
+			const call = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 });
+			const row = call.render(80)[0] as string;
+
+			expect(row.includes(BG)).toBe(false);
+		});
+
+		it("pads a painted header to the render width, like the delegated body", () => {
+			// The delegated body renders through pi-tui's Text, which pads every line to the render
 			// width; a natural-width header would end its background mid-row.
 			const BG = "\x1b[48;2;30;30;46m";
 			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
-			installClaudeExternalToolRenderers(FakeToolComponent, true);
-			const component = new FakeToolComponent();
-			component.toolName = "edit";
-			const call = (component.getCallRenderer() as any)({ path: "a.ts" }, bgTheme, {
-				state: {},
-				outputPad: 1,
-			});
+			const tool = prettyTool();
+			const call = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 });
 			const row = call.render(80)[0] as string;
-			installClaudeExternalToolRenderers(FakeToolComponent, false);
+
 			expect(row.startsWith(BG)).toBe(true);
 			expect(visibleWidth(row)).toBe(80);
 		});
@@ -225,18 +234,17 @@ describe("claudecode tool style", () => {
 				bold: (t: string) => t,
 				getBgAnsi: (k: string) => (k === "toolErrorBg" ? ERR : OK),
 			};
-			installClaudeExternalToolRenderers(FakeToolComponent, true);
-			const component = new FakeToolComponent();
-			component.toolName = "edit";
-			const call = (component.getCallRenderer() as any)({ path: "a.ts" }, bgTheme, {
+			const tool = prettyTool();
+			const call = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, {
 				state: {},
 				outputPad: 1,
 				isError: true,
 			});
 			const row = call.render(80)[0] as string;
-			installClaudeExternalToolRenderers(FakeToolComponent, false);
+
 			expect(row.startsWith(ERR)).toBe(true);
 		});
+
 		const original = (result: any, _options: any, _theme: any, ctx: any) => ({
 			render: () => ["DIFF"],
 			seen: ctx.lastComponent,

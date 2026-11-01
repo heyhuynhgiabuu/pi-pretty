@@ -329,14 +329,15 @@ function buildCallRow(
 	state: ToolState,
 	hint = "",
 	bodyLines: string[] = [],
+	bodyPaintsBackground = true,
 ): AnyComponent {
-	// Expanded results delegate to each tool's own renderer, which fills its body with BG_BASE; the
-	// header must be painted too or the two look detached. Rows are padded to `width` only when a
-	// background is actually painted: the delegated bodies render through pi-tui's Text, which pads
-	// every line, so an unpadded strip would end its colour mid-row. With no configured background
-	// the trailing spaces would be invisible but would still reach the clipboard and the tests.
+	// Expanded results delegate to each tool's own renderer. When that renderer fills its body with
+	// BG_BASE the header must be painted too or the two look detached; when it does not (Pi's
+	// built-in `edit`/`write` render a plain Text), painting the header would invert the mismatch.
+	// Rows are padded to `width` only when a background is actually painted: a delegated body renders
+	// through pi-tui's Text, which pads every line, so an unpadded strip would end its colour mid-row.
 	return rowComponent((width) => {
-		const bg = ctx.isError ? BG_ERROR : BG_BASE;
+		const bg = bodyPaintsBackground ? (ctx.isError ? BG_ERROR : BG_BASE) : BG_UNSET;
 		const pad = bg !== BG_UNSET;
 		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("toolTitle", label))}`;
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
@@ -374,8 +375,17 @@ type CallBody = (args: Record<string, unknown>) => string[];
 const codemodeSource: CallBody = (args) =>
 	highlightCode(firstString(args, ["code"]).replace(/\r/g, "").replace(/\t/g, "  ").trimEnd(), "javascript");
 
-/** Renderer pair for one tool; `original` is the result renderer shown when expanded. */
-function claudeRenderers(name: string, label: string, original?: AnyFn, expandedCallBody?: CallBody) {
+/** Renderer pair for one tool; `original` is the result renderer shown when expanded.
+ * `bodyPaintsBackground` marks the tools whose own result renderer fills its body with a
+ * background (pi-pretty's do, via `fillToolBody`). Painting the header above an unpainted body
+ * is the same detached look the fill exists to remove, only inverted, so it is opt-in. */
+function claudeRenderers(
+	name: string,
+	label: string,
+	original?: AnyFn,
+	expandedCallBody?: CallBody,
+	bodyPaintsBackground = false,
+) {
 	return {
 		renderCall(args: Record<string, unknown>, theme: ThemeLike, ctx: RenderCtxLike) {
 			resolveBaseBackground(theme);
@@ -394,6 +404,7 @@ function claudeRenderers(name: string, label: string, original?: AnyFn, expanded
 				state,
 				ctx.expanded ? toggleHint(theme, "collapse") : "",
 				ctx.expanded && expandedCallBody ? expandedCallBody(args ?? {}) : [],
+				bodyPaintsBackground,
 			);
 		},
 		renderResult(
@@ -448,7 +459,10 @@ export function withClaudeToolStyle<
 	T extends { name: string; label?: string; renderCall?: AnyFn; renderResult?: AnyFn },
 >(def: T): T {
 	styledToolNames.add(def.name);
-	return { ...def, ...claudeRenderers(def.name, def.label || def.name, isolateDelegate(def.renderResult)) } as T;
+	return {
+		...def,
+		...claudeRenderers(def.name, def.label || def.name, isolateDelegate(def.renderResult), undefined, true),
+	} as T;
 }
 
 // ---------------------------------------------------------------------------
