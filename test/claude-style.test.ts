@@ -812,7 +812,10 @@ describe("restored dangling tool calls", () => {
 		installClaudeChatGrouping(false);
 		resetBaseBackground();
 
-		expect(joined).toContain(FG);
+		// Same reasoning as the palette test: the summary row is never stripped, so check a member.
+		const memberRow = joined.split("\n").find((l: string) => l.includes("a.ts"));
+		expect(memberRow).toBeDefined();
+		expect(memberRow).toContain(FG);
 		expect(joined).not.toMatch(/48;[25];/);
 		// A mangled foreground would drop a channel: 38;2;183;141.
 		expect(joined).not.toMatch(/38;2;183;141m/);
@@ -843,7 +846,11 @@ describe("restored dangling tool calls", () => {
 		installClaudeChatGrouping(false);
 		resetBaseBackground();
 
-		expect(joined).toContain(FG);
+		// The summary row is not stripped, so asserting on the whole output would pass even if
+		// every member row lost its colour. Target a member row.
+		const memberRow = joined.split("\n").find((l: string) => l.includes("a.ts"));
+		expect(memberRow).toBeDefined();
+		expect(memberRow).toContain(FG);
 		expect(joined).not.toMatch(/38;5m/);
 		expect(joined).not.toMatch(/48;[25];/);
 	});
