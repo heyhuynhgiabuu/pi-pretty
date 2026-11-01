@@ -716,6 +716,28 @@ describe("restored dangling tool calls", () => {
 		expect(render([restored("solo")]).join("\n")).toContain("⊘ Read (solo)");
 	});
 
+	it("drops an extended background without eating the code after it", () => {
+		// `48;2` carries four arguments; skipping one too many silently swallowed the parameter
+		// that followed it, turning bold-red text into plain bold.
+		const BG_WITH_TRAILER = "\x1b[1;48;2;1;2;3;31m";
+		const theme = { fg: (_k: string, t: string) => `${BG_WITH_TRAILER}${t}\x1b[0m`, bold: (t: string) => t };
+		const tool = withClaudeToolStyle({
+			name: "read",
+			label: "Read",
+			renderResult: () => ({ render: () => ["1 line"] }),
+		});
+		const rows = (tool.renderCall as any)({ path: "a.ts" }, theme, {
+			state: {},
+			outputPad: 1,
+		}).render(40) as string[];
+		const header = rows.find((r: string) => strip(r).includes("Read"));
+
+		expect(header).toBeDefined();
+		expect(header).not.toMatch(/48;[25];/);
+		// The trailing `31` must survive the background it followed.
+		expect(header).toMatch(/\x1b\[1;31m/);
+	});
+
 	it("keeps 256-colour palette foregrounds intact on every claudecode row", () => {
 		// A palette index travels as an argument of `38;5`. Reading it as its own code drops it
 		// when it lands in 40-49/100-107, turning `38;5;42` into a colour-less `38;5`.
