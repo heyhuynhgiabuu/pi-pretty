@@ -193,7 +193,10 @@ describe("claudecode tool style", () => {
 			};
 			const tool = prettyTool();
 			const call = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 });
-			const row = call.render(80)[0] as string;
+			// Row 0 is the painted blank padding row; the header is row 1. Reading [0] would
+			// assert against a row of spaces, where no reset can ever appear.
+			const row = call.render(80)[1] as string;
+			expect(strip(row)).toContain("Read");
 
 			expect(row.startsWith(BG)).toBe(true);
 			const afterBg = row.slice(BG.length);
@@ -220,10 +223,14 @@ describe("claudecode tool style", () => {
 			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
 			const tool = prettyTool();
 			const call = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 });
-			const row = call.render(80)[0] as string;
+			const rows = call.render(80) as string[];
+			const header = rows[1];
 
-			expect(row.startsWith(BG)).toBe(true);
-			expect(visibleWidth(row)).toBe(80);
+			expect(strip(header)).toContain("Read");
+			expect(header.startsWith(BG)).toBe(true);
+			expect(visibleWidth(header)).toBe(80);
+			// The padding rows are part of the painted block, so they are full width too.
+			expect(visibleWidth(rows[0])).toBe(80);
 		});
 
 		it("gives a painted header a blank painted row above and below", () => {
@@ -265,6 +272,36 @@ describe("claudecode tool style", () => {
 			expect(rows.some((r: string) => r.includes(BG))).toBe(false);
 		});
 
+		it("paints and pads a collapsed result row for a body-painting tool", () => {
+			// Only the unpainted direction was covered, so dropping the fill, the padding or the
+			// error colour on the result row all passed. Pin all three.
+			const BG = "\x1b[48;2;30;30;46m";
+			const ERR = "\x1b[48;2;42;30;30m";
+			const bgTheme = {
+				fg: (_k: string, t: string) => `\x1b[38;5;245m${t}\x1b[0m`,
+				bold: (t: string) => t,
+				getBgAnsi: (k: string) => (k === "toolErrorBg" ? ERR : BG),
+			};
+			const tool = prettyTool();
+			const render = (isError: boolean): string => {
+				const result = (tool.renderResult as any)(
+					{ content: [{ type: "text", text: "ok" }], details: { _type: "readFile", lineCount: 1 } },
+					{ expanded: false },
+					bgTheme,
+					{ state: {}, outputPad: 1, args: { path: "a.ts" }, isError },
+				);
+				return (result.render(40) as string[])[0];
+			};
+
+			const success = render(false);
+			expect(success.startsWith(BG)).toBe(true);
+			expect(visibleWidth(success)).toBe(40);
+			expect(success.slice(BG.length)).not.toMatch(/\x1b\[0m/);
+
+			const failed = render(true);
+			expect(failed.startsWith(ERR)).toBe(true);
+		});
+
 		it("keeps an unpainted header a single row", () => {
 			const BG = "\x1b[48;2;30;30;46m";
 			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
@@ -292,9 +329,10 @@ describe("claudecode tool style", () => {
 				outputPad: 1,
 				isError: true,
 			});
-			const row = call.render(80)[0] as string;
+			const header = (call.render(80) as string[])[1];
 
-			expect(row.startsWith(ERR)).toBe(true);
+			expect(strip(header)).toContain("Read");
+			expect(header.startsWith(ERR)).toBe(true);
 		});
 
 		const original = (result: any, _options: any, _theme: any, ctx: any) => ({

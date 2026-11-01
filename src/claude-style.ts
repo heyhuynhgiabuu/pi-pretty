@@ -30,6 +30,28 @@ const isImageLine = (line: string): boolean => IMAGE_LINE_RE.test(line);
 const LEADING_SPACE_RE = new RegExp(`^((?:${String.fromCharCode(27)}\\[[0-9;]*m)*) +`);
 const stripAnsi = (text: string): string => text.replace(ANSI_RE, "");
 
+/** Drop background SGR parameters, keeping colours, so a member row can join a plain group. */
+const BG_PARAM_RE = new RegExp(`${String.fromCharCode(27)}\\[((?:\\d+;)*\\d*)m`, "g");
+const stripBackground = (text: string): string =>
+	text.replace(BG_PARAM_RE, (seq, params: string) => {
+		if (!params) return seq;
+		const parts = params.split(";").filter(Boolean);
+		const kept: string[] = [];
+		for (let i = 0; i < parts.length; i++) {
+			const code = Number(parts[i]);
+			if (code === 49 || (code >= 40 && code <= 47) || (code >= 100 && code <= 107)) continue;
+			if (code === 48) {
+				// Extended background: skip 48;5;n and 48;2;r;g;b along with their arguments.
+				if (parts[i + 1] === "5") i += 2;
+				else if (parts[i + 1] === "2") i += 4;
+				else i += 1;
+				continue;
+			}
+			kept.push(parts[i]);
+		}
+		return kept.length > 0 ? `${String.fromCharCode(27)}[${kept.join(";")}m` : "";
+	});
+
 const PLAIN_THEME: ThemeLike = { fg: (_color, text) => text, bold: (text) => text };
 
 // Theme for group rows, which are built outside any tool's render context.
@@ -329,7 +351,7 @@ function buildCallRow(
 	state: ToolState,
 	hint = "",
 	bodyLines: string[] = [],
-	bodyPaintsBackground = true,
+	bodyPaintsBackground = false,
 ): AnyComponent {
 	// Expanded results delegate to each tool's own renderer. When that renderer fills its body with
 	// BG_BASE the header must be painted too or the two look detached; when it does not (Pi's
@@ -362,7 +384,7 @@ function buildResultRow(
 	ctx: RenderCtxLike,
 	text: string,
 	failed: boolean,
-	paintsBackground = true,
+	paintsBackground = false,
 ): AnyComponent {
 	return rowComponent((width) => {
 		// The collapsed result row sits directly under the header, so it shares the header's
@@ -646,7 +668,11 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 		.filter(isToolComponent)
 		.map((member) => ({
 			member,
-			rows: (member.render(width) as string[]).filter((line) => stripAnsi(line).trim() !== "" && !isImageLine(line)),
+			// Blank rows (the painted padding) and any painted row would stripe a group: the group
+			// draws plain guides and a plain summary, so members are reduced to their text.
+			rows: (member.render(width) as string[])
+				.filter((line) => stripAnsi(line).trim() !== "" && !isImageLine(line))
+				.map((line) => stripBackground(line)),
 		}))
 		.filter((block) => block.rows.length > 0);
 	const lines: string[] = [];
