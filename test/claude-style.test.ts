@@ -226,6 +226,38 @@ describe("claudecode tool style", () => {
 			expect(visibleWidth(row)).toBe(80);
 		});
 
+		it("gives a painted header a blank painted row above and below", () => {
+			// The default style wraps its title in `\n...\n`, so its padded block breathes. A
+			// single painted line reads as a cramped strip, so the claudecode rows carry the same
+			// blank rows - and they must be painted, or the block looks cut top and bottom.
+			const BG = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
+			const tool = prettyTool();
+			const rows = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+			}).render(40) as string[];
+
+			expect(rows).toHaveLength(3);
+			for (const row of rows) {
+				expect(row.startsWith(BG)).toBe(true);
+				expect(visibleWidth(row)).toBe(40);
+			}
+		});
+
+		it("keeps an unpainted header a single row", () => {
+			const BG = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => BG };
+			const tool = plainBodyTool();
+			const rows = (tool.renderCall as any)({ path: "a.ts" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+			}).render(40) as string[];
+
+			expect(rows).toHaveLength(1);
+			expect(rows[0].includes(BG)).toBe(false);
+		});
+
 		it("uses the error background for a failed call", () => {
 			const OK = "\x1b[48;2;30;30;46m";
 			const ERR = "\x1b[48;2;42;30;30m";

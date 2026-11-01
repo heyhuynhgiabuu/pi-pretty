@@ -336,6 +336,9 @@ function buildCallRow(
 	// built-in `edit`/`write` render a plain Text), painting the header would invert the mismatch.
 	// Rows are padded to `width` only when a background is actually painted: a delegated body renders
 	// through pi-tui's Text, which pads every line, so an unpadded strip would end its colour mid-row.
+	// The default style wraps its title in `\n…\n`, so a padded block gets a painted blank row
+	// above and below. The claudecode rows are single lines, which read as a cramped strip once a
+	// background is painted, so they carry the same blank rows when painted.
 	return rowComponent((width) => {
 		const bg = bodyPaintsBackground ? (ctx.isError ? BG_ERROR : BG_BASE) : BG_UNSET;
 		const pad = bg !== BG_UNSET;
@@ -344,10 +347,13 @@ function buildCallRow(
 		const indent = `${indentOf(ctx)}  `;
 		const fill = (line: string, bgAnsi: string): string =>
 			pad ? fillToolBackground(line, bgAnsi, width, "") : fillToolBackground(line, bgAnsi);
-		return [
+		const rows = [
 			fill(fitLine(`${head}${body}${hint}`, width, theme), bg),
 			...bodyLines.map((line) => fill(fitLine(`${indent}${line}`, width, theme), bg)),
 		];
+		if (!pad) return rows;
+		const blank = fill("", bg);
+		return [blank, ...rows, blank];
 	});
 }
 
