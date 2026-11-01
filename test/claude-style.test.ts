@@ -716,6 +716,32 @@ describe("restored dangling tool calls", () => {
 		expect(render([restored("solo")]).join("\n")).toContain("⊘ Read (solo)");
 	});
 
+	it("keeps 256-colour palette foregrounds intact on every claudecode row", () => {
+		// A palette index travels as an argument of `38;5`. Reading it as its own code drops it
+		// when it lands in 40-49/100-107, turning `38;5;42` into a colour-less `38;5`.
+		const BG = "\x1b[48;2;30;30;46m";
+		const FG = "\x1b[38;5;42m";
+		const palette = { fg: (_k: string, t: string) => `${FG}${t}\x1b[39m`, bold: (t: string) => t, getBgAnsi: () => BG };
+		const tool = withClaudeToolStyle({
+			name: "read",
+			label: "Read",
+			renderResult: () => ({ render: () => ["1 line"] }),
+		});
+
+		const header = (tool.renderCall as any)({ path: "a.ts" }, palette, { state: {}, outputPad: 1 }).render(40)[1];
+		const result = (tool.renderResult as any)(
+			{ content: [{ type: "text", text: "ok" }], details: { _type: "readFile", lineCount: 1 } },
+			{ expanded: false },
+			palette,
+			{ state: {}, outputPad: 1, args: { path: "a.ts" } },
+		).render(40)[0];
+
+		expect(header).toContain(FG);
+		expect(result).toContain(FG);
+		expect(header).not.toMatch(/38;5m/);
+		expect(result).not.toMatch(/38;5m/);
+	});
+
 	it("strips backgrounds from grouped rows without damaging truecolor foregrounds", () => {
 		// Group members are reduced to plain rows under a plain summary. Stripping must remove the
 		// background while leaving an extended foreground's arguments intact - a red/green/blue

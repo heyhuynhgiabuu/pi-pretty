@@ -174,21 +174,23 @@ export function preserveBoxBackground(ansi: string): string {
 		while (i < parts.length) {
 			const code = Number(parts[i]);
 			if (code === 38) {
-				// Foreground extended — keep entire sequence
-				kept.push(parts[i]);
+				// Foreground extended — keep the introducer and every argument that belongs to it.
+				// The palette index must travel with `38;5`: read on its own it can land in the
+				// 40-49/100-107 background range and be dropped, leaving a colour-less `38;5`.
 				if (parts[i + 1] === "5") {
-					kept.push(parts[i + 1]);
-					i += 2;
+					kept.push(...parts.slice(i, i + 3));
+					i += 3;
 				} else if (parts[i + 1] === "2") {
-					kept.push(parts[i + 1], parts[i + 2], parts[i + 3], parts[i + 4]);
+					kept.push(...parts.slice(i, i + 5));
 					i += 5;
 				} else {
+					kept.push(parts[i]);
 					i++;
 				}
 			} else if (code === 48) {
-				// Background extended — skip entirely
+				// Background extended — skip it and its own arguments only (48;2 takes 4, not 5).
 				if (parts[i + 1] === "5") i += 3;
-				else if (parts[i + 1] === "2") i += 6;
+				else if (parts[i + 1] === "2") i += 5;
 				else i++;
 			} else if (code === 49 || (code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
 				i++;
