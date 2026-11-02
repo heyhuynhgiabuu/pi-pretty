@@ -162,7 +162,7 @@ describe("claudecode tool style", () => {
 	});
 
 	describe("write/edit from another extension", () => {
-		const plain = (text: string) => text.replace(/<\/?[a-z]*>/g, "");
+		const plain = (text: string) => text.replace(/<\/?[A-Za-z]*>/g, "");
 		const tagged = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (t: string) => t };
 		const original = (result: any, _options: any, _theme: any, ctx: any) => ({
 			render: () => ["DIFF"],
@@ -246,7 +246,9 @@ describe("claudecode tool style", () => {
 				tagged,
 				{ state: {}, outputPad: 1 },
 			);
-			expect(plain(patchCall.render(80)[0])).toContain("Apply patch (a.ts, +2 more)");
+			// Rendered wider than 80: this test's fake theme tags are plain text, so `visibleWidth`
+			// counts the colour name itself and the row would truncate before the closing paren.
+			expect(plain(patchCall.render(100)[0])).toContain("Apply patch (a.ts, +2 more)");
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
 		});
 
@@ -343,6 +345,16 @@ describe("claudecode tool style", () => {
 		const expandedCall = def.renderCall({ path: "a.ts" }, theme, { state: {}, expanded: true, outputPad: 1 } as any);
 		expect(strip(expandedCall.render(80)[0])).toBe(" ✓ Read (a.ts) (ctrl+o to collapse)");
 		toolsExpandKey.value = "";
+	});
+
+	it("draws the tool name in the toolTitle colour, not the default text colour", () => {
+		// The tool name is the one thing that tells two collapsed calls apart, so it uses the
+		// dedicated colour rather than `text`. A tag theme pins which colour was asked for.
+		const tagged = { fg: (color: string, text: string) => `<${color}>${text}</>`, bold: (t: string) => t };
+		const call = def.renderCall({ path: "a.ts" }, tagged, { state: {}, outputPad: 1 } as any);
+		const line = call.render(200)[0] as string;
+		expect(line).toContain("<toolTitle>Read</>");
+		expect(line).not.toContain("<text>Read</>");
 	});
 });
 

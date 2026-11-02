@@ -329,7 +329,7 @@ function buildCallRow(
 	bodyLines: string[] = [],
 ): AnyComponent {
 	return rowComponent((width) => {
-		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("text", label))}`;
+		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("toolTitle", label))}`;
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
 		const indent = `${indentOf(ctx)}  `;
 		return [
