@@ -10,7 +10,7 @@ const visible = (text: string) => text.split(sgr("0")).join("").replace(ANSI, ""
 /**
  * `preserveBoxBackground` rewrites SGR sequences so a background survives a reset. It must keep
  * every parameter that belongs to a `38` introducer, because a palette index or a colour channel
- * can legitimately fall in the 40-47/100-107 range and be dropped as a background.
+ * can legitimately fall in the 40-49/100-107 range and be dropped as a background.
  *
  * `58` (underline colour) is not handled by either branch and is broken on main too; that is a
  * separate bug, not covered here.
@@ -27,9 +27,10 @@ describe("preserveBoxBackground", () => {
 	});
 
 	it("keeps a 256-colour palette index with its introducer", () => {
-		// 42 and 103 sit in the background ranges; read on their own they were dropped, leaving
-		// a colour-less `38;5` that the terminal renders with the default colour.
-		for (const index of ["42", "103", "0", "255"]) {
+		// 18 indices sit in the background ranges (40-49 and 100-107); read on their own they were
+		// dropped, leaving a colour-less `38;5` that the terminal renders with the default colour.
+		// 48 and 49 are background codes too, not only the 40-47 block.
+		for (const index of ["42", "48", "49", "103", "0", "255"]) {
 			expect(preserveBoxBackground(sgr(`38;5;${index}`))).toBe(sgr(`38;5;${index}`));
 		}
 	});
