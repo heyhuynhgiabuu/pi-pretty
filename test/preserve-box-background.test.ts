@@ -44,8 +44,8 @@ describe("preserveBoxBackground", () => {
 	it("drops an extended background without eating the code after it", () => {
 		// 48;2 takes four arguments; skipping five swallowed whatever followed.
 		expect(preserveBoxBackground(sgr("1;48;2;1;2;3;31"))).toBe(sgr("1;31"));
-		// 48;5 takes one. An index outside 40-47 (196 here) would survive as a stray code if the
-		// skip were two instead of three.
+		// 48;5 takes one. An index outside 40-49/100-107 (196 here) would survive as a stray code
+		// if the skip were two instead of three.
 		expect(preserveBoxBackground(sgr("48;5;196;31"))).toBe(sgr("31"));
 	});
 
