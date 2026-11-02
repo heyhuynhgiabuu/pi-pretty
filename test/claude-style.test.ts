@@ -138,6 +138,30 @@ describe("claudecode tool style", () => {
 		expect(expanded).toBe(1);
 	});
 
+	it("strips the painted background from a folded group's member rows", () => {
+		// Group rows are a tree of tool rows. Keeping the background would put a painted bar
+		// beside the guide column on every member, striping most of a claudecode transcript.
+		setClaudeStyleTheme(theme);
+		const bg = "\x1b[48;2;30;30;46m";
+		const painted = (id: string) => ({
+			toolCallId: id,
+			toolName: "read",
+			result: {},
+			isPartial: false,
+			expanded: false,
+			render: () => ["", `${bg} ✓ Read (${id})`, `${bg}   └ 1 line`],
+		});
+		const chat = new Container();
+		chat.addChild(painted("a") as never);
+		chat.addChild(painted("b") as never);
+		installClaudeChatGrouping(true);
+		const lines = chat.render(60) as string[];
+		installClaudeChatGrouping(false);
+
+		expect(lines.join("\n")).not.toContain(bg);
+		expect(strip(lines.join("\n"))).toContain("Read (a)");
+	});
+
 	it("does not fold tools it does not style (e.g. pi-diff edit) into a group", () => {
 		setClaudeStyleTheme(theme);
 		const tool = (id: string, toolName: string, lines: string[]) => ({
@@ -324,6 +348,29 @@ describe("claudecode tool style", () => {
 			expect(render(failed, { isError: true })).toContain("boom: nope");
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
 		});
+
+		it("does not paint the expanded call body, only the header row", () => {
+			// Only codemode passes a call body to claudeRenderers, so it is the one path where this
+			// assertion has rows to check. The body is the tool's own source listing, which Pi draws
+			// unpainted; painting only the header keeps one rule instead of two half-painted halves.
+			const bg = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => bg };
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "codemode";
+			const call = component.getCallRenderer() as any;
+			const rows = call({ code: "const a = 1;\nconst b = 2;" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+				expanded: true,
+			}).render(60) as string[];
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+
+			// Without body rows this test would silently pass; prove there are some.
+			expect(rows.length).toBeGreaterThan(1);
+			expect(rows[0]).toContain(bg);
+			for (const row of rows.slice(1)) expect(row).not.toContain(bg);
+		});
 	});
 
 	it("hints at the expand binding on a folded group and the collapse binding on an expanded call", () => {
@@ -374,26 +421,6 @@ describe("claudecode tool style", () => {
 		expect(line).toContain("\x1b[48;2;30;30;46m");
 		expect(visibleWidth(line)).toBe(60);
 		expect(rowText(line)).toBe(" ✓ Read (a.ts)");
-	});
-
-	it("does not paint the call body, only the header row", () => {
-		// The body is the tool's own renderer output, which Pi draws unpainted. Painting only the
-		// header keeps one consistent rule instead of two half-painted halves.
-		const bgTheme = {
-			fg: (_k: string, t: string) => t,
-			bold: (t: string) => t,
-			getBgAnsi: () => "\x1b[48;2;30;30;46m",
-		};
-		const wholed = withClaudeToolStyle({
-			name: "bash",
-			label: "Bash",
-			renderResult: () => ({ render: () => ["ONE", "TWO"] }),
-		});
-		const call = wholed.renderCall({ command: "echo hi" }, bgTheme, { state: {}, outputPad: 1 } as any);
-		const rows = call.render(60) as string[];
-
-		expect(rows[0]).toContain("\x1b[48;2;30;30;46m");
-		for (const row of rows.slice(1)) expect(row).not.toContain("\x1b[48;2;30;30;46m");
 	});
 });
 

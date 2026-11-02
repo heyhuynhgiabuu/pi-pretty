@@ -16,7 +16,7 @@ import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
-import { fillToolBackground } from "./render.js";
+import { fillToolBackground, preserveBoxBackground } from "./render.js";
 import type { RenderCtxLike, ThemeLike } from "./types.js";
 
 type AnyFn = (...args: any[]) => any;
@@ -626,7 +626,9 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 			if (lineIndex === 0 && stripAnsi(line).trimStart().startsWith(ICON_SUCCESS))
 				content = line.replace(ICON_SUCCESS, "•");
 			if (lineIndex === 0 && isInterrupted(member)) content = markInterruptedRow(content);
-			const row = `  ${fg("dim", guide)}${content.replace(LEADING_SPACE_RE, "$1")}`;
+			// A group row is the tool's row inside a tree, so it keeps the text colours but not the
+			// painted background: a bar starting at the guide column would stripe the whole group.
+			const row = `  ${fg("dim", guide)}${preserveBoxBackground(content).replace(LEADING_SPACE_RE, "$1")}`;
 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "") : row);
 			owners.push(member);
 		});
