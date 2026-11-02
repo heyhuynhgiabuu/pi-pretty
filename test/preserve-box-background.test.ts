@@ -9,8 +9,11 @@ const visible = (text: string) => text.split(sgr("0")).join("").replace(ANSI, ""
 
 /**
  * `preserveBoxBackground` rewrites SGR sequences so a background survives a reset. It must keep
- * every foreground parameter that belongs to a `38`/`58` introducer, because a palette index or a
- * colour channel can legitimately fall in the 40-47/100-107 background range.
+ * every parameter that belongs to a `38` introducer, because a palette index or a colour channel
+ * can legitimately fall in the 40-47/100-107 range and be dropped as a background.
+ *
+ * `58` (underline colour) is not handled by either branch and is broken on main too; that is a
+ * separate bug, not covered here.
  */
 describe("preserveBoxBackground", () => {
 	it("keeps a bare reset from clearing the background", () => {
@@ -40,6 +43,15 @@ describe("preserveBoxBackground", () => {
 	it("drops an extended background without eating the code after it", () => {
 		// 48;2 takes four arguments; skipping five swallowed whatever followed.
 		expect(preserveBoxBackground(sgr("1;48;2;1;2;3;31"))).toBe(sgr("1;31"));
+		// 48;5 takes one. An index outside 40-47 (196 here) would survive as a stray code if the
+		// skip were two instead of three.
+		expect(preserveBoxBackground(sgr("48;5;196;31"))).toBe(sgr("31"));
+	});
+
+	it("keeps a 38 introducer with no recognised sub-code", () => {
+		// The loop advances by one here; without that it would not terminate.
+		expect(preserveBoxBackground(sgr("38"))).toBe(sgr("38"));
+		expect(preserveBoxBackground(sgr("1;38;9"))).toBe(sgr("1;38;9"));
 	});
 
 	it("keeps the foreground when a palette colour precedes a background", () => {
