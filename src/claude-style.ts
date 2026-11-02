@@ -14,7 +14,9 @@
 
 import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
+import { fillToolBackground, preserveBoxBackground } from "./render.js";
 import type { RenderCtxLike, ThemeLike } from "./types.js";
 
 type AnyFn = (...args: any[]) => any;
@@ -328,12 +330,18 @@ function buildCallRow(
 	hint = "",
 	bodyLines: string[] = [],
 ): AnyComponent {
+	// Resolved once per render call, not per frame: it reads pi-pretty.json synchronously.
+	resolveBaseBackground(theme);
+	const bg = ctx.isError ? BG_ERROR : BG_BASE;
 	return rowComponent((width) => {
 		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("toolTitle", label))}`;
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
 		const indent = `${indentOf(ctx)}  `;
+		const title = fitLine(`${head}${body}${hint}`, width, theme);
 		return [
-			fitLine(`${head}${body}${hint}`, width, theme),
+			// Fill after truncating: truncateToWidth counts background sequences as visible width.
+			// An empty indent pads the row to the render width, so the colour reaches the edge.
+			fillToolBackground(title, bg, width, ""),
 			...bodyLines.map((line) => fitLine(`${indent}${line}`, width, theme)),
 		];
 	});
@@ -618,7 +626,9 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 			if (lineIndex === 0 && stripAnsi(line).trimStart().startsWith(ICON_SUCCESS))
 				content = line.replace(ICON_SUCCESS, "•");
 			if (lineIndex === 0 && isInterrupted(member)) content = markInterruptedRow(content);
-			const row = `  ${fg("dim", guide)}${content.replace(LEADING_SPACE_RE, "$1")}`;
+			// A group row is the tool's row inside a tree, so it keeps the text colours but not the
+			// painted background: a bar starting at the guide column would stripe the whole group.
+			const row = `  ${fg("dim", guide)}${preserveBoxBackground(content).replace(LEADING_SPACE_RE, "$1")}`;
 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "") : row);
 			owners.push(member);
 		});

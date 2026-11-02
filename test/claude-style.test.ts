@@ -1,4 +1,4 @@
-import { Container } from "@earendil-works/pi-tui";
+import { Container, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
 	installClaudeChatGrouping,
@@ -17,6 +17,8 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 
 const theme = { fg: (_k: string, t: string) => t, bold: (t: string) => t };
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+/** A painted header is padded to the render width, so compare its text without trailing space. */
+const rowText = (s: string) => strip(s).trimEnd();
 
 describe("claudecode tool style", () => {
 	const def = withClaudeToolStyle({
@@ -27,7 +29,7 @@ describe("claudecode tool style", () => {
 
 	it("renders ✓ Name (args) call rows and └ result rows", () => {
 		const call = def.renderCall({ path: "src/a.ts" }, theme, { state: {}, isPartial: false, outputPad: 1 } as any);
-		expect(strip(call.render(80)[0])).toBe(" ✓ Read (src/a.ts)");
+		expect(rowText(call.render(80)[0])).toBe(" ✓ Read (src/a.ts)");
 		const result = def.renderResult(
 			{ content: [{ type: "text", text: "a\nb" }], details: { _type: "readFile", lineCount: 2 } },
 			{ expanded: false },
@@ -134,6 +136,34 @@ describe("claudecode tool style", () => {
 		expect(click(1)).toBeUndefined();
 		expect(click(4)?.handled).toBe(true);
 		expect(expanded).toBe(1);
+	});
+
+	it("strips the painted background from a folded group's member rows", () => {
+		// Group rows are a tree of tool rows. Keeping the background would put a painted bar
+		// beside the guide column on every member, striping most of a claudecode transcript.
+		setClaudeStyleTheme(theme);
+		const bg = "\x1b[48;2;30;30;46m";
+		// A palette foreground rides along, so a strip that threw away every colour instead of
+		// only the background would be caught here.
+		const fg = "\x1b[38;5;45m";
+		const painted = (id: string) => ({
+			toolCallId: id,
+			toolName: "read",
+			result: {},
+			isPartial: false,
+			expanded: false,
+			render: () => ["", `${bg}${fg} ✓ Read (${id})`, `${bg}${fg}   └ 1 line`],
+		});
+		const chat = new Container();
+		chat.addChild(painted("a") as never);
+		chat.addChild(painted("b") as never);
+		installClaudeChatGrouping(true);
+		const lines = chat.render(60) as string[];
+		installClaudeChatGrouping(false);
+
+		expect(lines.join("\n")).not.toContain(bg);
+		expect(lines.join("\n")).toContain(fg);
+		expect(strip(lines.join("\n"))).toContain("Read (a)");
 	});
 
 	it("does not fold tools it does not style (e.g. pi-diff edit) into a group", () => {
@@ -322,6 +352,29 @@ describe("claudecode tool style", () => {
 			expect(render(failed, { isError: true })).toContain("boom: nope");
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
 		});
+
+		it("does not paint the expanded call body, only the header row", () => {
+			// Only codemode passes a call body to claudeRenderers, so it is the one path where this
+			// assertion has rows to check. The body is the tool's own source listing, which Pi draws
+			// unpainted; painting only the header keeps one rule instead of two half-painted halves.
+			const bg = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => bg };
+			installClaudeExternalToolRenderers(FakeToolComponent, true);
+			const component = new FakeToolComponent();
+			component.toolName = "codemode";
+			const call = component.getCallRenderer() as any;
+			const rows = call({ code: "const a = 1;\nconst b = 2;" }, bgTheme, {
+				state: {},
+				outputPad: 1,
+				expanded: true,
+			}).render(60) as string[];
+			installClaudeExternalToolRenderers(FakeToolComponent, false);
+
+			// Without body rows this test would silently pass; prove there are some.
+			expect(rows.length).toBeGreaterThan(1);
+			expect(rows[0]).toContain(bg);
+			for (const row of rows.slice(1)) expect(row).not.toContain(bg);
+		});
 	});
 
 	it("hints at the expand binding on a folded group and the collapse binding on an expanded call", () => {
@@ -343,7 +396,7 @@ describe("claudecode tool style", () => {
 		expect(summary).toBe("✓ Done (2 tool calls) (ctrl+o to expand)");
 
 		const expandedCall = def.renderCall({ path: "a.ts" }, theme, { state: {}, expanded: true, outputPad: 1 } as any);
-		expect(strip(expandedCall.render(80)[0])).toBe(" ✓ Read (a.ts) (ctrl+o to collapse)");
+		expect(rowText(expandedCall.render(80)[0])).toBe(" ✓ Read (a.ts) (ctrl+o to collapse)");
 		toolsExpandKey.value = "";
 	});
 
@@ -355,6 +408,23 @@ describe("claudecode tool style", () => {
 		const line = call.render(200)[0] as string;
 		expect(line).toContain("<toolTitle>Read</>");
 		expect(line).not.toContain("<text>Read</>");
+	});
+
+	it("paints the call row's background across the full width", () => {
+		// The claudecode shell is "self", so the host draws no box and pi-pretty owns the row.
+		// Without a fill the header has no background at all; without padding the colour stops
+		// at the text instead of reaching the edge.
+		const bgTheme = {
+			fg: (_k: string, t: string) => t,
+			bold: (t: string) => t,
+			getBgAnsi: () => "\x1b[48;2;30;30;46m",
+		};
+		const call = def.renderCall({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 } as any);
+		const line = call.render(60)[0] as string;
+
+		expect(line).toContain("\x1b[48;2;30;30;46m");
+		expect(visibleWidth(line)).toBe(60);
+		expect(rowText(line)).toBe(" ✓ Read (a.ts)");
 	});
 });
 
