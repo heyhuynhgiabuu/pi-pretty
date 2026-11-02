@@ -1,4 +1,4 @@
-import { Container } from "@earendil-works/pi-tui";
+import { Container, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
 	installClaudeChatGrouping,
@@ -17,6 +17,8 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 
 const theme = { fg: (_k: string, t: string) => t, bold: (t: string) => t };
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+/** A painted header is padded to the render width, so compare its text without trailing space. */
+const rowText = (s: string) => strip(s).trimEnd();
 
 describe("claudecode tool style", () => {
 	const def = withClaudeToolStyle({
@@ -27,7 +29,7 @@ describe("claudecode tool style", () => {
 
 	it("renders ✓ Name (args) call rows and └ result rows", () => {
 		const call = def.renderCall({ path: "src/a.ts" }, theme, { state: {}, isPartial: false, outputPad: 1 } as any);
-		expect(strip(call.render(80)[0])).toBe(" ✓ Read (src/a.ts)");
+		expect(rowText(call.render(80)[0])).toBe(" ✓ Read (src/a.ts)");
 		const result = def.renderResult(
 			{ content: [{ type: "text", text: "a\nb" }], details: { _type: "readFile", lineCount: 2 } },
 			{ expanded: false },
@@ -343,7 +345,7 @@ describe("claudecode tool style", () => {
 		expect(summary).toBe("✓ Done (2 tool calls) (ctrl+o to expand)");
 
 		const expandedCall = def.renderCall({ path: "a.ts" }, theme, { state: {}, expanded: true, outputPad: 1 } as any);
-		expect(strip(expandedCall.render(80)[0])).toBe(" ✓ Read (a.ts) (ctrl+o to collapse)");
+		expect(rowText(expandedCall.render(80)[0])).toBe(" ✓ Read (a.ts) (ctrl+o to collapse)");
 		toolsExpandKey.value = "";
 	});
 
@@ -355,6 +357,43 @@ describe("claudecode tool style", () => {
 		const line = call.render(200)[0] as string;
 		expect(line).toContain("<toolTitle>Read</>");
 		expect(line).not.toContain("<text>Read</>");
+	});
+
+	it("paints the call row's background across the full width", () => {
+		// The claudecode shell is "self", so the host draws no box and pi-pretty owns the row.
+		// Without a fill the header has no background at all; without padding the colour stops
+		// at the text instead of reaching the edge.
+		const bgTheme = {
+			fg: (_k: string, t: string) => t,
+			bold: (t: string) => t,
+			getBgAnsi: () => "\x1b[48;2;30;30;46m",
+		};
+		const call = def.renderCall({ path: "a.ts" }, bgTheme, { state: {}, outputPad: 1 } as any);
+		const line = call.render(60)[0] as string;
+
+		expect(line).toContain("\x1b[48;2;30;30;46m");
+		expect(visibleWidth(line)).toBe(60);
+		expect(rowText(line)).toBe(" ✓ Read (a.ts)");
+	});
+
+	it("does not paint the call body, only the header row", () => {
+		// The body is the tool's own renderer output, which Pi draws unpainted. Painting only the
+		// header keeps one consistent rule instead of two half-painted halves.
+		const bgTheme = {
+			fg: (_k: string, t: string) => t,
+			bold: (t: string) => t,
+			getBgAnsi: () => "\x1b[48;2;30;30;46m",
+		};
+		const wholed = withClaudeToolStyle({
+			name: "bash",
+			label: "Bash",
+			renderResult: () => ({ render: () => ["ONE", "TWO"] }),
+		});
+		const call = wholed.renderCall({ command: "echo hi" }, bgTheme, { state: {}, outputPad: 1 } as any);
+		const rows = call.render(60) as string[];
+
+		expect(rows[0]).toContain("\x1b[48;2;30;30;46m");
+		for (const row of rows.slice(1)) expect(row).not.toContain("\x1b[48;2;30;30;46m");
 	});
 });
 

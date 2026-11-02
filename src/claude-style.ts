@@ -14,7 +14,9 @@
 
 import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
+import { fillToolBackground } from "./render.js";
 import type { RenderCtxLike, ThemeLike } from "./types.js";
 
 type AnyFn = (...args: any[]) => any;
@@ -328,12 +330,18 @@ function buildCallRow(
 	hint = "",
 	bodyLines: string[] = [],
 ): AnyComponent {
+	// Resolved once per render call, not per frame: it reads pi-pretty.json synchronously.
+	resolveBaseBackground(theme);
+	const bg = ctx.isError ? BG_ERROR : BG_BASE;
 	return rowComponent((width) => {
 		const head = `${indentOf(ctx)}${stateIcon(theme, state)} ${theme.bold(theme.fg("toolTitle", label))}`;
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
 		const indent = `${indentOf(ctx)}  `;
+		const title = fitLine(`${head}${body}${hint}`, width, theme);
 		return [
-			fitLine(`${head}${body}${hint}`, width, theme),
+			// Fill after truncating: truncateToWidth counts background sequences as visible width.
+			// An empty indent pads the row to the render width, so the colour reaches the edge.
+			fillToolBackground(title, bg, width, ""),
 			...bodyLines.map((line) => fitLine(`${indent}${line}`, width, theme)),
 		];
 	});
