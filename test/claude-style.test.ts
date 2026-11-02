@@ -143,13 +143,16 @@ describe("claudecode tool style", () => {
 		// beside the guide column on every member, striping most of a claudecode transcript.
 		setClaudeStyleTheme(theme);
 		const bg = "\x1b[48;2;30;30;46m";
+		// A palette foreground rides along, so a strip that threw away every colour instead of
+		// only the background would be caught here.
+		const fg = "\x1b[38;5;45m";
 		const painted = (id: string) => ({
 			toolCallId: id,
 			toolName: "read",
 			result: {},
 			isPartial: false,
 			expanded: false,
-			render: () => ["", `${bg} ✓ Read (${id})`, `${bg}   └ 1 line`],
+			render: () => ["", `${bg}${fg} ✓ Read (${id})`, `${bg}${fg}   └ 1 line`],
 		});
 		const chat = new Container();
 		chat.addChild(painted("a") as never);
@@ -159,6 +162,7 @@ describe("claudecode tool style", () => {
 		installClaudeChatGrouping(false);
 
 		expect(lines.join("\n")).not.toContain(bg);
+		expect(lines.join("\n")).toContain(fg);
 		expect(strip(lines.join("\n"))).toContain("Read (a)");
 	});
 
