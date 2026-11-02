@@ -1,3 +1,4 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -8,6 +9,9 @@ import {
 	withClaudeToolStyle,
 } from "../src/claude-style.js";
 
+// `highlightCode` resolves colours through the global theme, so a codemode script rendered outside
+// the TUI throws "Theme not initialized" before this file ever mocks the module away.
+initTheme("dark", false);
 // Pi's keybindings are not initialised outside the TUI, so the binding text is stubbed per test.
 const toolsExpandKey = vi.hoisted(() => ({ value: "" }));
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
