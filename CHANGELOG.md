@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.0] - 2026-11-02
+
+### Fixed
+
+- `preserveBoxBackground` truncated extended foreground sequences, so a 256-colour foreground whose palette index fell in the 40-49 or 100-107 range lost its colour entirely. The `38` branch kept only its introducer and sub-code, so the arguments were re-read as standalone SGR codes: `38;5;42` came out as `38;5`, and `38;5;42;1` came out as `38;5;1` — red instead of palette 42, with the bold lost. Sweeping all 256 palette indices against the previous code, 18 lost their colour (40-49 and 100-107). `38;2` was already handled correctly and is unchanged.
+- `preserveBoxBackground`'s `48;2` branch skipped six parameters instead of five, swallowing whatever code followed an extended background: `1;48;2;1;2;3;31` came out as `1`, losing the red. Both branches now take exactly the arguments that belong to them.
+- The `fff` restricted-base-path refusal no longer reappears after `/reload`. The service survives on `globalThis`, so a reloaded extension's classifier ran against an error built by the previous module instance and `instanceof` failed (#19, thanks @DeadKper).
+
+### Changed
+
+- `toolStyle: "claudecode"`: the call row now paints its background across the full render width. The style renders in the host's `"self"` shell, which draws no box, so a tool call previously had no background at all and its expanded body sat on the terminal background with the header floating above it. Only the header row is painted; body lines stay the tool's own output. Folded group members keep their text colours and drop the background, so a group does not become a stack of painted bars.
+- `toolStyle: "claudecode"`: the tool name uses `toolTitle` instead of `text`. On Pi's bundled `dark` and `light` themes both keys resolve to the same colour, so the visible change appears only under themes that define a distinct title colour — on `catppuccin` the name goes from `#cdd6f4` to `#f9e2af`.
+
+### Maintenance
+
+- devDependencies follow the pi runtime at 1.5.0. The mismatch was hiding a real break: 1.5.0's `highlightCode` resolves colours through the global theme, so the codemode test needed `initTheme` before the file's module mock applies.
+
+#### Verification
+
+- 367 tests passing across 25 files; typecheck and build passing; no new lint errors.
+- The `preserveBoxBackground` tests were written against the previous code first: 3 of the 8 fail there and all 8 pass now.
+- The background paint is pinned by three tests, each of which fails when its behaviour is reverted: dropping the fill, dropping the width padding, and painting the body.
+
 ## [0.8.0] - 2026-10-22
 
 ### Added
