@@ -5,6 +5,7 @@ import {
 	installClaudeChatGrouping,
 	installClaudeExternalToolRenderers,
 	setClaudeStyleAgentActive,
+	setClaudeStyleExpandFileTools,
 	setClaudeStyleTheme,
 	withClaudeToolStyle,
 } from "../src/claude-style.js";
@@ -240,6 +241,106 @@ describe("claudecode tool style", () => {
 		expect(joined).toContain("permission denied");
 		expect(joined).not.toContain(errBg);
 		expect(joined).not.toContain(toolBg);
+	});
+
+	it("opens a file tool by default when expandFileTools is on", () => {
+		// `claudeStyle.expandFileTools`: the diff is there without a click. Only once a result
+		// exists — there is nothing to show before that — and only once per tool, so a later
+		// collapse (a click, or Ctrl+O) sticks instead of being undone on the next frame.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
+		setClaudeStyleAgentActive(true);
+		setClaudeStyleExpandFileTools(true);
+		const calls: boolean[] = [];
+		const member = (id: string, hasResult: boolean) => ({
+			toolCallId: id,
+			toolName: "edit",
+			result: hasResult ? {} : undefined,
+			isPartial: false,
+			expanded: false,
+			setExpanded(value: boolean) {
+				calls.push(value);
+				(this as any).expanded = value;
+			},
+			render: () => ["", ` ✓ Edit (${id})`, "   └ +1 -1"],
+		});
+		const container = new Container();
+		container.addChild(member("a", true) as never);
+		container.addChild(member("b", false) as never);
+		installClaudeChatGrouping(true);
+		container.render(80);
+		container.render(80);
+		installClaudeChatGrouping(false);
+		setClaudeStyleExpandFileTools(false);
+
+		// Opened once for the tool that has a result, never for the one still running, and not
+		// re-opened on the second frame because it is already expanded.
+		expect(calls).toEqual([true]);
+	});
+
+	it("lets a click or Ctrl+O collapse a file tool it opened by default", () => {
+		// Re-opening on every frame would silently undo the user's collapse, and the host would
+		// still report "Tool output: collapsed" while the diff stayed open.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
+		setClaudeStyleAgentActive(true);
+		setClaudeStyleExpandFileTools(true);
+		let opened = 0;
+		const member = (id: string) => ({
+			toolCallId: id,
+			toolName: "edit",
+			result: {},
+			isPartial: false,
+			expanded: false,
+			setExpanded(value: boolean) {
+				opened++;
+				(this as any).expanded = value;
+			},
+			render: () => ["", ` ✓ Edit (${id})`, "   └ +1 -1"],
+		});
+		const container = new Container();
+		container.addChild(member("a") as never);
+		container.addChild(member("b") as never);
+		installClaudeChatGrouping(true);
+		container.render(80);
+		expect(opened).toBe(2);
+		// The user collapses both, as Ctrl+O does, then the host renders again.
+		for (const child of container.children as any[]) if (child.expanded) child.setExpanded(false);
+		opened = 0;
+		container.render(80);
+		container.render(80);
+		installClaudeChatGrouping(false);
+		setClaudeStyleExpandFileTools(false);
+
+		expect(opened).toBe(0);
+		expect((container.children as any[]).every((c) => c.expanded === false)).toBe(true);
+	});
+
+	it("leaves a file tool collapsed when expandFileTools is off", () => {
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
+		setClaudeStyleAgentActive(true);
+		setClaudeStyleExpandFileTools(false);
+		let opened = 0;
+		const member = () => ({
+			toolCallId: "a",
+			toolName: "edit",
+			result: {},
+			isPartial: false,
+			expanded: false,
+			setExpanded() {
+				opened++;
+			},
+			render: () => ["", " ✓ Edit (a)", "   └ +1 -1"],
+		});
+		const container = new Container();
+		container.addChild(member() as never);
+		container.addChild({ ...member(), toolCallId: "b" } as never);
+		installClaudeChatGrouping(true);
+		container.render(80);
+		installClaudeChatGrouping(false);
+
+		expect(opened).toBe(0);
 	});
 
 	it("still breaks the group apart for a tool whose body a tree row cannot carry", () => {

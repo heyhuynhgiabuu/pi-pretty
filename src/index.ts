@@ -26,6 +26,7 @@ import {
 	installClaudeExternalToolRenderers,
 	resetClaudeStyleSessionState,
 	setClaudeStyleAgentActive,
+	setClaudeStyleExpandFileTools,
 	setClaudeStyleTheme,
 	withClaudeToolStyleApi,
 } from "./claude-style.js";
@@ -87,6 +88,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	const config = loadConfig();
 	applyConfig(config);
 	const claudeStyle = config.toolStyle === "claudecode";
+	setClaudeStyleExpandFileTools(claudeStyle && Boolean(config.claudeStyle?.expandFileTools));
 	setClaudeThinkingLabels(claudeStyle);
 	// claudecode style keeps user messages plain; the default style prefixes them with a prompt icon.
 	if (!claudeStyle) {

@@ -6,6 +6,9 @@
 	"theme": "github-dark",
 	"icons": "nerd",
 	"toolStyle": "default",
+	"claudeStyle": {
+		"expandFileTools": false
+	},
 	"userRail": "#3a3a4a",
 	"enableTools": [
 		"ls"

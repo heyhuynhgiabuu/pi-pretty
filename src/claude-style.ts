@@ -531,6 +531,13 @@ const MIN_GROUPED_TOOLS = 2;
  */
 const GROUP_INLINE_BODY_TOOLS = new Set(["write", "edit", "apply_patch"]);
 
+/** `claudeStyle.expandFileTools`: open a file tool's diff by default instead of one `+N -N` row. */
+let expandFileTools = false;
+
+export function setClaudeStyleExpandFileTools(enabled: boolean): void {
+	expandFileTools = enabled;
+}
+
 const fg = (color: string, text: string): string => groupTheme.fg(color, text);
 const bold = (text: string): string => groupTheme.bold(text);
 
@@ -572,6 +579,11 @@ let agentActive = false;
  * transcript (same toolCallIds, fresh components) starts without stale marks. */
 let interruptedTools = new WeakSet<object>();
 
+/** File tools this session has already opened once on the user's behalf. Keyed by component, so a
+ * rebuilt transcript starts fresh. Opening only once is what keeps Ctrl+O and a click able to
+ * collapse a file tool afterwards: re-opening on every frame would silently undo them. */
+let autoOpenedFileTools = new WeakSet<object>();
+
 export function setClaudeStyleAgentActive(active: boolean): void {
 	agentActive = active;
 }
@@ -581,6 +593,7 @@ export function setClaudeStyleAgentActive(active: boolean): void {
 export function resetClaudeStyleSessionState(): void {
 	agentActive = false;
 	interruptedTools = new WeakSet<object>();
+	autoOpenedFileTools = new WeakSet<object>();
 }
 
 /** A call whose result will never arrive: marked while idle, or never resolved at all. */
@@ -773,6 +786,17 @@ function renderGrouped(container: any, width: number): string[] {
 		}
 		const members = children.slice(index, end);
 		const tools = members.filter(isToolComponent);
+		// A file tool opens by default, but only once: it needs a result to show, and re-opening it
+		// every frame would undo the collapse a click or Ctrl+O just asked for. `setExpanded` always
+		// rebuilds the component, so this stays out of the steady state.
+		if (expandFileTools) {
+			for (const tool of tools) {
+				if (autoOpenedFileTools.has(tool)) continue;
+				if (!tool.result || !GROUP_INLINE_BODY_TOOLS.has(tool.toolName ?? "")) continue;
+				autoOpenedFileTools.add(tool);
+				if (!tool.expanded) tool.setExpanded?.(true);
+			}
+		}
 		// While idle, any result-less styled tool is a restored dangling call — mark it once.
 		if (!agentActive) {
 			for (const tool of tools) if (!tool.result) interruptedTools.add(tool);

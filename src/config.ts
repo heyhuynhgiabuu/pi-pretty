@@ -123,6 +123,9 @@ export interface PrettyConfig {
 	thinkingIndicator?: ThinkingIndicatorConfig;
 	/** "claudecode" renders collapsed tools as `✓ Name (args)` rows with grouping. */
 	toolStyle?: "default" | "claudecode";
+	/** `claudecode` only: show `write`/`edit`/`apply_patch` diffs by default instead of one
+	 * collapsed `+N -N` row. Ctrl+O still toggles them with everything else. */
+	claudeStyle?: { expandFileTools?: boolean };
 	fff?: FffConfig;
 }
 
@@ -162,6 +165,9 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 		}
 		if (typeof parsed.theme === "string" && parsed.theme.trim() !== "") config.theme = parsed.theme;
 		if (parsed.toolStyle === "default" || parsed.toolStyle === "claudecode") config.toolStyle = parsed.toolStyle;
+		if (typeof parsed.claudeStyle?.expandFileTools === "boolean") {
+			config.claudeStyle = { expandFileTools: parsed.claudeStyle.expandFileTools };
+		}
 		if (typeof parsed.userRail === "string" && /^#[0-9a-fA-F]{6}$/.test(parsed.userRail))
 			config.userRail = parsed.userRail;
 		if (typeof parsed.icons === "string") config.icons = parsed.icons;
