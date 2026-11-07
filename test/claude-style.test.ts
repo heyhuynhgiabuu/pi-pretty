@@ -211,6 +211,37 @@ describe("claudecode tool style", () => {
 		expect(joined).not.toContain(toolBg);
 	});
 
+	it("strips the background from an expanded file tool's error message", () => {
+		// pi-diff paints a failed write/edit with the tool error background. That row is a message,
+		// not a diff line, so it must not keep the background inside the tree.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
+		const errBg = "\x1b[48;2;60;30;30m";
+		const toolBg = "\x1b[48;2;30;30;46m";
+		const member = (id: string, expanded: boolean) => ({
+			toolCallId: id,
+			toolName: "edit",
+			// `isError` lives on the result, which is what the host reads too.
+			result: { isError: true },
+			isPartial: false,
+			expanded,
+			render: () =>
+				expanded
+					? ["", `${toolBg} ✗ Edit (src/a.ts)`, `   ${errBg}failed: permission denied`]
+					: ["", `${toolBg} ✗ Edit (src/a.ts)`, "   └ failed"],
+		});
+		const chat = new Container();
+		chat.addChild(member("a", false) as never);
+		chat.addChild(member("b", true) as never);
+		installClaudeChatGrouping(true);
+		const joined = (chat.render(60) as string[]).join("\n");
+		installClaudeChatGrouping(false);
+
+		expect(joined).toContain("permission denied");
+		expect(joined).not.toContain(errBg);
+		expect(joined).not.toContain(toolBg);
+	});
+
 	it("still breaks the group apart for a tool whose body a tree row cannot carry", () => {
 		// read highlights asynchronously and can hold an image payload; bash output runs to hundreds
 		// of lines. Keeping either inside a cached group would freeze the pre-highlight text, drop
@@ -573,10 +604,11 @@ describe("settled group cache", () => {
 	});
 
 	it("serves fresh rows after a member is expanded", () => {
-		// The component object survives a toggle and only its children are rebuilt, so a cache
-		// keyed on member identity alone would keep showing the folded row forever. Uses `edit`
-		// because only the inline-body tools keep a group when expanded; a `read` member would
-		// leave the group and pass this without ever consulting the cache.
+		// The component object survives a toggle and only its children are rebuilt, and a delegated
+		// renderer can repaint later still (pi-diff starts a placeholder and invalidates when the
+		// async diff lands). Neither changes the cache's identity inputs, so a group holding an
+		// expanded member is never cached at all. Uses `edit` because only the inline-body tools
+		// keep a group when expanded.
 		setClaudeStyleTheme(theme);
 		setClaudeStyleAgentActive(true);
 		withClaudeToolStyle({ name: "edit", label: "Edit" });
@@ -599,6 +631,37 @@ describe("settled group cache", () => {
 
 		expect(folded.some((l: string) => l.includes("BODY LINE"))).toBe(false);
 		expect(opened.some((l: string) => l.includes("BODY LINE"))).toBe(true);
+	});
+
+	it("never caches a group that holds an expanded member", () => {
+		// A delegated renderer repaints asynchronously without touching result, partial or member
+		// identity, so a cached string would freeze pi-diff's placeholder. Re-rendering every frame
+		// is the cost of showing the diff inline.
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(true);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const tool = (id: string, expanded: boolean) => ({
+			toolCallId: id,
+			toolName: "edit",
+			result: {},
+			isPartial: false,
+			expanded,
+			render: () => {
+				counter.renders++;
+				return ["", " ✓ Edit (a)", "   └ +1 -1"];
+			},
+		});
+		const container = chat([tool("a", false), tool("b", true)]);
+		container.render(80);
+		counter.renders = 0;
+		container.render(80);
+		container.render(80);
+		installClaudeChatGrouping(false);
+
+		// Two members, two frames, nothing served from the cache.
+		expect(counter.renders).toBe(4);
 	});
 
 	it("refreshes rows and mouse owners when the host rebuilds the transcript with the same ids", () => {

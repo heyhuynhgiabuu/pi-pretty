@@ -618,7 +618,10 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 	// own rows (a hidden-thinking label) would read as noise between the tool rows.
 	/** A row that carries a diff line, which keeps its own background and blank spacing. */
 	const isBodyRow = (member: any, lineIndex: number): boolean =>
-		lineIndex > 0 && Boolean(member.expanded) && GROUP_INLINE_BODY_TOOLS.has(member.toolName ?? "");
+		lineIndex > 0 &&
+		Boolean(member.expanded) &&
+		!member.result?.isError &&
+		GROUP_INLINE_BODY_TOOLS.has(member.toolName ?? "");
 	const blocks = members
 		.filter(isToolComponent)
 		.map((member) => ({
@@ -686,9 +689,6 @@ interface CachedGroupRender {
 	 * invalidate the row even though the component object is unchanged. */
 	results: unknown[];
 	partials: boolean[];
-	/** Per-tool expanded flag. A member's body appears inside the group once it is expanded, and the
-	 * component object survives the toggle, so without this the cache would keep serving folded rows. */
-	expanded: boolean[];
 	rendered: string[];
 }
 
@@ -736,7 +736,6 @@ function isSameGroup(entry: CachedGroupRender, members: AnyComponent[], tools: A
 	for (let i = 0; i < members.length; i++) if (entry.members[i] !== members[i]) return false;
 	for (let i = 0; i < tools.length; i++) {
 		if (entry.results[i] !== tools[i].result || entry.partials[i] !== Boolean(tools[i].isPartial)) return false;
-		if (entry.expanded[i] !== Boolean(tools[i].expanded)) return false;
 	}
 	return true;
 }
@@ -793,8 +792,13 @@ function renderGrouped(container: any, width: number): string[] {
 			}
 		} else {
 			const running = tools.some((tool) => isRunning(tool));
+			// A delegated renderer can repaint after its first render — pi-diff starts a placeholder
+			// and calls invalidate when the async diff lands — and that repaint changes none of the
+			// cache's identity inputs. So a group holding an expanded member is never served from the
+			// cache; it re-renders each frame, like a running one.
+			const live = running || tools.some((tool) => Boolean(tool.expanded));
 			const key = groupCacheKey(members);
-			const cached = running ? undefined : state.store.get(key);
+			const cached = live ? undefined : state.store.get(key);
 			if (cached && isSameGroup(cached, members, tools)) {
 				push(cached.component, cached.rendered);
 			} else {
@@ -804,13 +808,12 @@ function renderGrouped(container: any, width: number): string[] {
 				const component = groupComponent(owners);
 				const rendered = [...summary, ...tree.lines];
 				push(component, rendered);
-				if (!running && state.store.size < GROUP_RENDER_CACHE_MAX) {
+				if (!live && state.store.size < GROUP_RENDER_CACHE_MAX) {
 					state.store.set(key, {
 						component,
 						members: [...members],
 						results: tools.map((tool) => tool.result),
 						partials: tools.map((tool) => Boolean(tool.isPartial)),
-						expanded: tools.map((tool) => Boolean(tool.expanded)),
 						rendered,
 					});
 				}
