@@ -599,6 +599,9 @@ describe("claudecode tool style", () => {
 			expect(clean("a\x1b]52;c;Zm9v\x07b")).toBe("ab");
 			expect(clean("a\x07b")).toBe("ab");
 			expect(clean("a\rb")).toBe("ab");
+			// Host order matters here: stripping ANSI before CR keeps "[31m" as visible text,
+			// because the CR breaks the sequence. Removing CR first would make it a real SGR.
+			expect(clean("a\x1b\r[31mb")).toBe("a[31mb");
 			// The text between a private CSI and what follows survives; the host keeps it too.
 			expect(clean("keep\x1b[?25lme")).toBe("keepme");
 

@@ -205,7 +205,11 @@ function resultText(result: any): string {
 function sanitizedBodyText(result: any): string {
 	return ((result?.content ?? []) as Array<{ type?: string; text?: string }>)
 		.filter((block) => block.type === "text")
-		.map((block) => (block.text ?? "").replace(/\r/g, "").replace(ANSI_SEQUENCE_RE, "").replace(CONTROL_CHARS_RE, ""))
+		.map((block) =>
+			// Host order: strip ANSI, then binary controls, then CR. Removing CR first would let
+			// "a ESC CR [31m b" read as a complete SGR and lose "[31m" from the text.
+			(block.text ?? "").replace(ANSI_SEQUENCE_RE, "").replace(CONTROL_CHARS_RE, "").replace(/\r/g, ""),
+		)
 		.join("\n");
 }
 
