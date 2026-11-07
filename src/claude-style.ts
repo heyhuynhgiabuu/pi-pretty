@@ -521,6 +521,15 @@ export function withClaudeToolStyleApi<P extends { registerTool: AnyFn }>(pi: P)
 // ---------------------------------------------------------------------------
 
 const MIN_GROUPED_TOOLS = 2;
+/**
+ * Tools whose expanded body stays inside the group instead of breaking it apart.
+ *
+ * A file-tool body is a diff: a few dozen lines at most, and the reason you expand the row is to
+ * read it next to the call it belongs to. `read`, `bash`, `codemode` and friends are the opposite —
+ * hundreds of lines, an async highlight pass, or an image payload that a tree row cannot carry — so
+ * they keep the old behaviour of leaving the group when expanded.
+ */
+const GROUP_INLINE_BODY_TOOLS = new Set(["write", "edit", "apply_patch"]);
 
 const fg = (color: string, text: string): string => groupTheme.fg(color, text);
 const bold = (text: string): string => groupTheme.bold(text);
@@ -607,11 +616,20 @@ function summaryRow(members: any[], width: number): string[] {
 function treeRows(members: any[], width: number): { lines: string[]; owners: any[] } {
 	// Text-less assistant turns only contribute to the summary's thought count; their
 	// own rows (a hidden-thinking label) would read as noise between the tool rows.
+	/** A row that carries a diff line, which keeps its own background and blank spacing. */
+	const isBodyRow = (member: any, lineIndex: number): boolean =>
+		lineIndex > 0 &&
+		Boolean(member.expanded) &&
+		!member.result?.isError &&
+		GROUP_INLINE_BODY_TOOLS.has(member.toolName ?? "");
 	const blocks = members
 		.filter(isToolComponent)
 		.map((member) => ({
 			member,
-			rows: (member.render(width) as string[]).filter((line) => stripAnsi(line).trim() !== "" && !isImageLine(line)),
+			// Blank rows inside an inlined diff are hunks separated for readability, so they survive.
+			rows: (member.render(width) as string[]).filter(
+				(line, i) => !isImageLine(line) && (isBodyRow(member, i) || stripAnsi(line).trim() !== ""),
+			),
 		}))
 		.filter((block) => block.rows.length > 0);
 	const lines: string[] = [];
@@ -626,9 +644,13 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 			if (lineIndex === 0 && stripAnsi(line).trimStart().startsWith(ICON_SUCCESS))
 				content = line.replace(ICON_SUCCESS, "•");
 			if (lineIndex === 0 && isInterrupted(member)) content = markInterruptedRow(content);
-			// A group row is the tool's row inside a tree, so it keeps the text colours but not the
-			// painted background: a bar starting at the guide column would stripe the whole group.
-			const row = `  ${fg("dim", guide)}${preserveBoxBackground(content).replace(LEADING_SPACE_RE, "$1")}`;
+			// A group row is the tool's row inside a tree, so it drops the tool-row background: a bar
+			// starting at the guide column would stripe the whole group. A diff line is the exception —
+			// its green/red background IS the information, so an inlined body row keeps it.
+			const body = isBodyRow(member, lineIndex)
+				? content.replace(LEADING_SPACE_RE, "$1")
+				: preserveBoxBackground(content).replace(LEADING_SPACE_RE, "$1");
+			const row = `  ${fg("dim", guide)}${body}`;
 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "") : row);
 			owners.push(member);
 		});
@@ -755,7 +777,8 @@ function renderGrouped(container: any, width: number): string[] {
 		if (!agentActive) {
 			for (const tool of tools) if (!tool.result) interruptedTools.add(tool);
 		}
-		if (tools.length < MIN_GROUPED_TOOLS || tools.some((tool) => tool.expanded)) {
+		const leavesGroup = tools.some((tool) => tool.expanded && !GROUP_INLINE_BODY_TOOLS.has(tool.toolName ?? ""));
+		if (tools.length < MIN_GROUPED_TOOLS || leavesGroup) {
 			for (const member of members) {
 				const rendered = member.render(width);
 				// A group has no summary to say "interrupted", so the lone row says it itself.
@@ -769,8 +792,13 @@ function renderGrouped(container: any, width: number): string[] {
 			}
 		} else {
 			const running = tools.some((tool) => isRunning(tool));
+			// A delegated renderer can repaint after its first render — pi-diff starts a placeholder
+			// and calls invalidate when the async diff lands — and that repaint changes none of the
+			// cache's identity inputs. So a group holding an expanded member is never served from the
+			// cache; it re-renders each frame, like a running one.
+			const live = running || tools.some((tool) => Boolean(tool.expanded));
 			const key = groupCacheKey(members);
-			const cached = running ? undefined : state.store.get(key);
+			const cached = live ? undefined : state.store.get(key);
 			if (cached && isSameGroup(cached, members, tools)) {
 				push(cached.component, cached.rendered);
 			} else {
@@ -780,7 +808,7 @@ function renderGrouped(container: any, width: number): string[] {
 				const component = groupComponent(owners);
 				const rendered = [...summary, ...tree.lines];
 				push(component, rendered);
-				if (!running && state.store.size < GROUP_RENDER_CACHE_MAX) {
+				if (!live && state.store.size < GROUP_RENDER_CACHE_MAX) {
 					state.store.set(key, {
 						component,
 						members: [...members],
