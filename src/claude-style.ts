@@ -531,6 +531,13 @@ const MIN_GROUPED_TOOLS = 2;
  */
 const GROUP_INLINE_BODY_TOOLS = new Set(["write", "edit", "apply_patch"]);
 
+/** `claudeStyle.expandFileTools`: open a file tool's diff by default instead of one `+N -N` row. */
+let expandFileTools = false;
+
+export function setClaudeStyleExpandFileTools(enabled: boolean): void {
+	expandFileTools = enabled;
+}
+
 const fg = (color: string, text: string): string => groupTheme.fg(color, text);
 const bold = (text: string): string => groupTheme.bold(text);
 
@@ -773,6 +780,14 @@ function renderGrouped(container: any, width: number): string[] {
 		}
 		const members = children.slice(index, end);
 		const tools = members.filter(isToolComponent);
+		// A file tool opens by default, but only once its result exists: there is nothing to show
+		// before that. `setExpanded` always rebuilds the component, so it is called only on a change.
+		if (expandFileTools) {
+			for (const tool of tools) {
+				if (!tool.result || !GROUP_INLINE_BODY_TOOLS.has(tool.toolName ?? "")) continue;
+				if (!tool.expanded) tool.setExpanded?.(true);
+			}
+		}
 		// While idle, any result-less styled tool is a restored dangling call — mark it once.
 		if (!agentActive) {
 			for (const tool of tools) if (!tool.result) interruptedTools.add(tool);
