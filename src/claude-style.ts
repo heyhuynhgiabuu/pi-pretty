@@ -13,7 +13,7 @@
  */
 
 import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
-import { Container, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
 import { fillToolBackground, preserveBoxBackground } from "./render.js";
