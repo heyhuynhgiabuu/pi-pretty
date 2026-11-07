@@ -142,6 +142,57 @@ describe("claudecode tool style", () => {
 		expect(expanded).toBe(1);
 	});
 
+	it("keeps an expanded member inside the group and shows its body there", () => {
+		// A group used to break apart the moment one member was expanded, which meant the diff or
+		// output you asked for was the one thing missing from the group view.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "read", label: "Read" });
+		const tool = (id: string, expanded: boolean) => ({
+			toolCallId: id,
+			toolName: "read",
+			result: {},
+			isPartial: false,
+			expanded,
+			render: () => (expanded ? [` ✓ Read (${id})`, "   └ L1", "     L2"] : [` ✓ Read (${id})`, "   └ 2 lines"]),
+		});
+		const chat = new Container();
+		chat.addChild(tool("a", false) as never);
+		chat.addChild(tool("b", true) as never);
+		installClaudeChatGrouping(true);
+		const lines = (chat.render(60) as string[]).map(strip);
+		installClaudeChatGrouping(false);
+
+		expect(lines.some((l: string) => l.includes("Done (2 tool calls)"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("Read (b)"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("L1"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("L2"))).toBe(true);
+	});
+
+	it("caps a long expanded body with a +N more note", () => {
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "read", label: "Read" });
+		const body = Array.from({ length: 30 }, (_, i) => `     body line ${i + 1}`);
+		const tool = (id: string, expanded: boolean) => ({
+			toolCallId: id,
+			toolName: "read",
+			result: {},
+			isPartial: false,
+			expanded,
+			render: () => (expanded ? [` ✓ Read (${id})`, "   └ first", ...body] : [` ✓ Read (${id})`, "   └ 30 lines"]),
+		});
+		const chat = new Container();
+		chat.addChild(tool("a", false) as never);
+		chat.addChild(tool("b", true) as never);
+		installClaudeChatGrouping(true);
+		const lines = (chat.render(60) as string[]).map(strip);
+		installClaudeChatGrouping(false);
+
+		// 31 rows total (header + "first" + 30 body lines); 1 header + 8 body lines shown, 23 hidden.
+		expect(lines.some((l: string) => l.includes("… +23 more"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("body line 7"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("body line 8"))).toBe(false);
+	});
+
 	it("strips the painted background from a folded group's member rows", () => {
 		// Group rows are a tree of tool rows. Keeping the background would put a painted bar
 		// beside the guide column on every member, striping most of a claudecode transcript.
@@ -471,6 +522,31 @@ describe("settled group cache", () => {
 		expect(first).toBe(3);
 		// The settled group is served from the cache; only the running row renders again.
 		expect(counter.renders).toBe(1);
+	});
+
+	it("serves fresh rows after a member is expanded", () => {
+		// The component object survives a toggle and only its children are rebuilt, so a cache
+		// keyed on member identity alone would keep showing the folded row forever.
+		setClaudeStyleTheme(theme);
+		setClaudeStyleAgentActive(true);
+		installClaudeChatGrouping(true);
+		const counter = { renders: 0 };
+		const a = counted("a", counter);
+		const b = counted("b", counter);
+		const container = chat([a, b]);
+		container.render(80);
+		const folded = container.render(80).map(strip);
+		// Expand the second member in place, as a click on it would.
+		(b as any).expanded = true;
+		(b as any).render = () => {
+			counter.renders++;
+			return ["", " ✓ Read (b)", "   └ BODY LINE"];
+		};
+		const opened = container.render(80).map(strip);
+		installClaudeChatGrouping(false);
+
+		expect(folded.some((l: string) => l.includes("BODY LINE"))).toBe(false);
+		expect(opened.some((l: string) => l.includes("BODY LINE"))).toBe(true);
 	});
 
 	it("refreshes rows and mouse owners when the host rebuilds the transcript with the same ids", () => {

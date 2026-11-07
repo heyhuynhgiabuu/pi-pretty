@@ -521,6 +521,10 @@ export function withClaudeToolStyleApi<P extends { registerTool: AnyFn }>(pi: P)
 // ---------------------------------------------------------------------------
 
 const MIN_GROUPED_TOOLS = 2;
+/** Body lines a group shows for an expanded member before collapsing the rest into a `+N` note.
+ * A tool's body can be hundreds of lines; folding it whole into a group of a dozen calls would
+ * push every other row off screen, which is what keeping expanded members out of groups avoided. */
+const GROUP_BODY_PREVIEW_LINES = 8;
 
 const fg = (color: string, text: string): string => groupTheme.fg(color, text);
 const bold = (text: string): string => groupTheme.bold(text);
@@ -619,7 +623,11 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 	const owners: any[] = [];
 	blocks.forEach(({ member, rows }, blockIndex) => {
 		const last = blockIndex === blocks.length - 1;
-		rows.forEach((line, lineIndex) => {
+		// An expanded member contributes its whole body. Cap it so one long diff cannot push the
+		// rest of the group off screen; the full body is still there when the group is left.
+		const overflow = Math.max(0, rows.length - 1 - GROUP_BODY_PREVIEW_LINES);
+		const shown = overflow > 0 ? rows.slice(0, 1 + GROUP_BODY_PREVIEW_LINES) : rows;
+		shown.forEach((line, lineIndex) => {
 			const guide = lineIndex === 0 ? (last ? "└─ " : "├─ ") : last ? "   " : "│  ";
 			let content = line;
 			// A settled success shrinks to a small dot; errors, spinners and pending markers stay as they are.
@@ -632,6 +640,12 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "") : row);
 			owners.push(member);
 		});
+		if (overflow > 0) {
+			const guide = last ? "   " : "│  ";
+			lines.push(`  ${fg("dim", guide)}${fg("dim", `… +${overflow} more`)}`);
+			// The note belongs to the same tool, so clicking it still toggles this member.
+			owners.push(member);
+		}
 	});
 	if (lines.length > 0) {
 		lines.push("");
@@ -667,6 +681,9 @@ interface CachedGroupRender {
 	 * invalidate the row even though the component object is unchanged. */
 	results: unknown[];
 	partials: boolean[];
+	/** Per-tool expanded flag. A member's body appears inside the group once it is expanded, and the
+	 * component object survives the toggle, so without this the cache would keep serving folded rows. */
+	expanded: boolean[];
 	rendered: string[];
 }
 
@@ -714,6 +731,7 @@ function isSameGroup(entry: CachedGroupRender, members: AnyComponent[], tools: A
 	for (let i = 0; i < members.length; i++) if (entry.members[i] !== members[i]) return false;
 	for (let i = 0; i < tools.length; i++) {
 		if (entry.results[i] !== tools[i].result || entry.partials[i] !== Boolean(tools[i].isPartial)) return false;
+		if (entry.expanded[i] !== Boolean(tools[i].expanded)) return false;
 	}
 	return true;
 }
@@ -755,7 +773,7 @@ function renderGrouped(container: any, width: number): string[] {
 		if (!agentActive) {
 			for (const tool of tools) if (!tool.result) interruptedTools.add(tool);
 		}
-		if (tools.length < MIN_GROUPED_TOOLS || tools.some((tool) => tool.expanded)) {
+		if (tools.length < MIN_GROUPED_TOOLS) {
 			for (const member of members) {
 				const rendered = member.render(width);
 				// A group has no summary to say "interrupted", so the lone row says it itself.
@@ -786,6 +804,7 @@ function renderGrouped(container: any, width: number): string[] {
 						members: [...members],
 						results: tools.map((tool) => tool.result),
 						partials: tools.map((tool) => Boolean(tool.isPartial)),
+						expanded: tools.map((tool) => Boolean(tool.expanded)),
 						rendered,
 					});
 				}
