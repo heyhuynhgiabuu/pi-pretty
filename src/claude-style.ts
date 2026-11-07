@@ -579,6 +579,11 @@ let agentActive = false;
  * transcript (same toolCallIds, fresh components) starts without stale marks. */
 let interruptedTools = new WeakSet<object>();
 
+/** File tools this session has already opened once on the user's behalf. Keyed by component, so a
+ * rebuilt transcript starts fresh. Opening only once is what keeps Ctrl+O and a click able to
+ * collapse a file tool afterwards: re-opening on every frame would silently undo them. */
+let autoOpenedFileTools = new WeakSet<object>();
+
 export function setClaudeStyleAgentActive(active: boolean): void {
 	agentActive = active;
 }
@@ -588,6 +593,7 @@ export function setClaudeStyleAgentActive(active: boolean): void {
 export function resetClaudeStyleSessionState(): void {
 	agentActive = false;
 	interruptedTools = new WeakSet<object>();
+	autoOpenedFileTools = new WeakSet<object>();
 }
 
 /** A call whose result will never arrive: marked while idle, or never resolved at all. */
@@ -780,11 +786,14 @@ function renderGrouped(container: any, width: number): string[] {
 		}
 		const members = children.slice(index, end);
 		const tools = members.filter(isToolComponent);
-		// A file tool opens by default, but only once its result exists: there is nothing to show
-		// before that. `setExpanded` always rebuilds the component, so it is called only on a change.
+		// A file tool opens by default, but only once: it needs a result to show, and re-opening it
+		// every frame would undo the collapse a click or Ctrl+O just asked for. `setExpanded` always
+		// rebuilds the component, so this stays out of the steady state.
 		if (expandFileTools) {
 			for (const tool of tools) {
+				if (autoOpenedFileTools.has(tool)) continue;
 				if (!tool.result || !GROUP_INLINE_BODY_TOOLS.has(tool.toolName ?? "")) continue;
+				autoOpenedFileTools.add(tool);
 				if (!tool.expanded) tool.setExpanded?.(true);
 			}
 		}
