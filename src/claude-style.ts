@@ -521,10 +521,15 @@ export function withClaudeToolStyleApi<P extends { registerTool: AnyFn }>(pi: P)
 // ---------------------------------------------------------------------------
 
 const MIN_GROUPED_TOOLS = 2;
-/** Body lines a group shows for an expanded member before collapsing the rest into a `+N` note.
- * A tool's body can be hundreds of lines; folding it whole into a group of a dozen calls would
- * push every other row off screen, which is what keeping expanded members out of groups avoided. */
-const GROUP_BODY_PREVIEW_LINES = 8;
+/**
+ * Tools whose expanded body stays inside the group instead of breaking it apart.
+ *
+ * A file-tool body is a diff: a few dozen lines at most, and the reason you expand the row is to
+ * read it next to the call it belongs to. `read`, `bash`, `codemode` and friends are the opposite —
+ * hundreds of lines, an async highlight pass, or an image payload that a tree row cannot carry — so
+ * they keep the old behaviour of leaving the group when expanded.
+ */
+const GROUP_INLINE_BODY_TOOLS = new Set(["write", "edit", "apply_patch"]);
 
 const fg = (color: string, text: string): string => groupTheme.fg(color, text);
 const bold = (text: string): string => groupTheme.bold(text);
@@ -623,11 +628,7 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 	const owners: any[] = [];
 	blocks.forEach(({ member, rows }, blockIndex) => {
 		const last = blockIndex === blocks.length - 1;
-		// An expanded member contributes its whole body. Cap it so one long diff cannot push the
-		// rest of the group off screen; the full body is still there when the group is left.
-		const overflow = Math.max(0, rows.length - 1 - GROUP_BODY_PREVIEW_LINES);
-		const shown = overflow > 0 ? rows.slice(0, 1 + GROUP_BODY_PREVIEW_LINES) : rows;
-		shown.forEach((line, lineIndex) => {
+		rows.forEach((line, lineIndex) => {
 			const guide = lineIndex === 0 ? (last ? "└─ " : "├─ ") : last ? "   " : "│  ";
 			let content = line;
 			// A settled success shrinks to a small dot; errors, spinners and pending markers stay as they are.
@@ -640,12 +641,6 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "") : row);
 			owners.push(member);
 		});
-		if (overflow > 0) {
-			const guide = last ? "   " : "│  ";
-			lines.push(`  ${fg("dim", guide)}${fg("dim", `… +${overflow} more`)}`);
-			// The note belongs to the same tool, so clicking it still toggles this member.
-			owners.push(member);
-		}
 	});
 	if (lines.length > 0) {
 		lines.push("");
@@ -773,7 +768,8 @@ function renderGrouped(container: any, width: number): string[] {
 		if (!agentActive) {
 			for (const tool of tools) if (!tool.result) interruptedTools.add(tool);
 		}
-		if (tools.length < MIN_GROUPED_TOOLS) {
+		const leavesGroup = tools.some((tool) => tool.expanded && !GROUP_INLINE_BODY_TOOLS.has(tool.toolName ?? ""));
+		if (tools.length < MIN_GROUPED_TOOLS || leavesGroup) {
 			for (const member of members) {
 				const rendered = member.render(width);
 				// A group has no summary to say "interrupted", so the lone row says it itself.

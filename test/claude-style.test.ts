@@ -142,55 +142,58 @@ describe("claudecode tool style", () => {
 		expect(expanded).toBe(1);
 	});
 
-	it("keeps an expanded member inside the group and shows its body there", () => {
-		// A group used to break apart the moment one member was expanded, which meant the diff or
-		// output you asked for was the one thing missing from the group view.
+	it("keeps an expanded file tool inside the group and shows its diff there", () => {
+		// The reason you expand an edit is to read the diff next to the call it belongs to, so a
+		// file tool stays inside the group instead of breaking it apart.
 		setClaudeStyleTheme(theme);
-		withClaudeToolStyle({ name: "read", label: "Read" });
-		const tool = (id: string, expanded: boolean) => ({
+		for (const name of ["edit", "write", "apply_patch"]) withClaudeToolStyle({ name, label: name });
+		const tool = (id: string, name: string, expanded: boolean) => ({
 			toolCallId: id,
-			toolName: "read",
+			toolName: name,
 			result: {},
 			isPartial: false,
 			expanded,
-			render: () => (expanded ? [` ✓ Read (${id})`, "   └ L1", "     L2"] : [` ✓ Read (${id})`, "   └ 2 lines"]),
+			render: () =>
+				expanded
+					? ["", ` ✓ ${name} (src/a.ts)`, "   └ +2 -1", "     +added line", "     -removed line"]
+					: ["", ` ✓ ${name} (src/a.ts)`, "   └ +2 -1"],
 		});
 		const chat = new Container();
-		chat.addChild(tool("a", false) as never);
-		chat.addChild(tool("b", true) as never);
+		chat.addChild(tool("a", "edit", false) as never);
+		chat.addChild(tool("b", "edit", true) as never);
 		installClaudeChatGrouping(true);
 		const lines = (chat.render(60) as string[]).map(strip);
 		installClaudeChatGrouping(false);
 
 		expect(lines.some((l: string) => l.includes("Done (2 tool calls)"))).toBe(true);
-		expect(lines.some((l: string) => l.includes("Read (b)"))).toBe(true);
-		expect(lines.some((l: string) => l.includes("L1"))).toBe(true);
-		expect(lines.some((l: string) => l.includes("L2"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("+added line"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("-removed line"))).toBe(true);
 	});
 
-	it("caps a long expanded body with a +N more note", () => {
+	it("still breaks the group apart for a tool whose body a tree row cannot carry", () => {
+		// read highlights asynchronously and can hold an image payload; bash output runs to hundreds
+		// of lines. Keeping either inside a cached group would freeze the pre-highlight text, drop
+		// the image, or bury the rest of the transcript.
 		setClaudeStyleTheme(theme);
-		withClaudeToolStyle({ name: "read", label: "Read" });
-		const body = Array.from({ length: 30 }, (_, i) => `     body line ${i + 1}`);
-		const tool = (id: string, expanded: boolean) => ({
+		for (const name of ["read", "bash", "codemode", "recall"]) withClaudeToolStyle({ name, label: name });
+		const tool = (id: string, name: string) => ({
 			toolCallId: id,
-			toolName: "read",
+			toolName: name,
 			result: {},
 			isPartial: false,
-			expanded,
-			render: () => (expanded ? [` ✓ Read (${id})`, "   └ first", ...body] : [` ✓ Read (${id})`, "   └ 30 lines"]),
+			expanded: true,
+			render: () => ["", ` ✓ ${name} (${id})`, "   └ 300 lines"],
 		});
 		const chat = new Container();
-		chat.addChild(tool("a", false) as never);
-		chat.addChild(tool("b", true) as never);
+		chat.addChild(tool("a", "read") as never);
+		chat.addChild(tool("b", "bash") as never);
 		installClaudeChatGrouping(true);
 		const lines = (chat.render(60) as string[]).map(strip);
 		installClaudeChatGrouping(false);
 
-		// 31 rows total (header + "first" + 30 body lines); 1 header + 8 body lines shown, 23 hidden.
-		expect(lines.some((l: string) => l.includes("… +23 more"))).toBe(true);
-		expect(lines.some((l: string) => l.includes("body line 7"))).toBe(true);
-		expect(lines.some((l: string) => l.includes("body line 8"))).toBe(false);
+		expect(lines.some((l: string) => l.includes("Done (2 tool calls)"))).toBe(false);
+		expect(lines.some((l: string) => l.includes("read (a)"))).toBe(true);
+		expect(lines.some((l: string) => l.includes("bash (b)"))).toBe(true);
 	});
 
 	it("strips the painted background from a folded group's member rows", () => {
@@ -222,7 +225,11 @@ describe("claudecode tool style", () => {
 	});
 
 	it("does not fold tools it does not style (e.g. pi-diff edit) into a group", () => {
+		// `styledToolNames` is module-global and other tests register `read`/`edit`, so this uses
+		// names nothing else claims. Relying on the shipped names made the test order-dependent.
 		setClaudeStyleTheme(theme);
+		const styled = withClaudeToolStyle({ name: "unstyledProbeStyled", label: "Styled" });
+		expect(styled.name).toBe("unstyledProbeStyled");
 		const tool = (id: string, toolName: string, lines: string[]) => ({
 			toolCallId: id,
 			toolName,
@@ -231,18 +238,18 @@ describe("claudecode tool style", () => {
 			render: () => lines,
 		});
 		const chat = new Container();
-		chat.addChild(tool("a", "read", [" ✓ Read (a)"]) as never);
-		chat.addChild(tool("b", "read", [" ✓ Read (b)"]) as never);
-		chat.addChild(tool("c", "edit", ["EDIT HEADER", "+ diff line"]) as never);
-		chat.addChild(tool("d", "read", [" ✓ Read (d)"]) as never);
+		chat.addChild(tool("a", "unstyledProbeStyled", [" ✓ Styled (a)"]) as never);
+		chat.addChild(tool("b", "unstyledProbeStyled", [" ✓ Styled (b)"]) as never);
+		chat.addChild(tool("c", "unstyledProbeOther", ["OTHER HEADER", "+ diff line"]) as never);
+		chat.addChild(tool("d", "unstyledProbeStyled", [" ✓ Styled (d)"]) as never);
 		installClaudeChatGrouping(true);
 		const lines = chat.render(80).map(strip);
 		installClaudeChatGrouping(false);
 		expect(lines.some((l) => l.includes("Done (2 tool calls)"))).toBe(true);
-		// The edit keeps its own rows, unindented and outside the tree.
-		expect(lines).toContain("EDIT HEADER");
+		// The unstyled tool keeps its own rows, unindented and outside the tree.
+		expect(lines).toContain("OTHER HEADER");
 		expect(lines).toContain("+ diff line");
-		expect(lines.some((l) => l.includes("Read (d)"))).toBe(true);
+		expect(lines.some((l) => l.includes("Styled (d)"))).toBe(true);
 		expect(lines.filter((l) => l.includes("Done")).length).toBe(1);
 	});
 
@@ -526,13 +533,17 @@ describe("settled group cache", () => {
 
 	it("serves fresh rows after a member is expanded", () => {
 		// The component object survives a toggle and only its children are rebuilt, so a cache
-		// keyed on member identity alone would keep showing the folded row forever.
+		// keyed on member identity alone would keep showing the folded row forever. Uses `edit`
+		// because only the inline-body tools keep a group when expanded; a `read` member would
+		// leave the group and pass this without ever consulting the cache.
 		setClaudeStyleTheme(theme);
 		setClaudeStyleAgentActive(true);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
 		installClaudeChatGrouping(true);
 		const counter = { renders: 0 };
-		const a = counted("a", counter);
-		const b = counted("b", counter);
+		const asEdit = (tool: any) => ({ ...tool, toolName: "edit" });
+		const a = asEdit(counted("a", counter));
+		const b = asEdit(counted("b", counter));
 		const container = chat([a, b]);
 		container.render(80);
 		const folded = container.render(80).map(strip);
