@@ -517,7 +517,7 @@ describe("claudecode tool style", () => {
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
 		});
 
-		it("summarizes recall searches and expansions, leaving expanded output to the host", () => {
+		it("summarizes recall searches and expansions, painting the expanded output", () => {
 			installClaudeExternalToolRenderers(FakeToolComponent, true);
 			const component = new FakeToolComponent();
 			component.toolName = "recall";
@@ -544,9 +544,132 @@ describe("claudecode tool style", () => {
 				"2 entries expanded",
 			);
 
+			// Expanded, recall has no renderer of its own, so the host fallback would draw plain
+			// `toolOutput` text on a "self" shell with no box — an unpainted body. Paint it here.
 			component.expanded = true;
-			expect(component.getResultRenderer()).toBeUndefined();
+			const bg = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => bg };
+			const expanded = (component.getResultRenderer() as any)(
+				{ content: [{ type: "text", text: "line one\nline two" }], details: {} },
+				{ expanded: true },
+				bgTheme,
+				{ state: {}, outputPad: 1, expanded: true },
+			);
+			const bodyRows = expanded.render(60) as string[];
+			expect(bodyRows).toHaveLength(2);
+			for (const row of bodyRows) expect(row).toContain(bg);
+
+			// The host fallback wrapped (it was a Text component); truncating would drop the tail of
+			// a long entry with no way to reach it. Every character must survive a narrow width.
+			const long = `head-${"x".repeat(120)}-tail`;
+			const wrapped = (component.getResultRenderer() as any)(
+				{ content: [{ type: "text", text: long }], details: {} },
+				{ expanded: true },
+				bgTheme,
+				{ state: {}, outputPad: 1, expanded: true },
+			).render(40) as string[];
+			expect(wrapped.length).toBeGreaterThan(1);
+			for (const row of wrapped) expect(row).toContain(bg);
+			const joined = strip(wrapped.join(""));
+			expect(joined).toContain("head-");
+			expect(joined).toContain("-tail");
+
+			// Parity with the host fallback this replaces: it stripped ANSI and binary controls,
+			// replaced tabs with three spaces, and drew with `toolOutput`. A raw escape reaching the
+			// terminal can reprogram it, so it must never survive.
+			const draw = (text: string) =>
+				(component.getResultRenderer() as any)(
+					{ content: [{ type: "text", text }], details: {} },
+					{ expanded: true },
+					bgTheme,
+					{ state: {}, outputPad: 1, expanded: true },
+				).render(40) as string[];
+			const escapeRow = draw("\x1b]0;pwned\x07visible\x1b[2J");
+			expect(escapeRow.join("")).not.toContain("\x1b]");
+			expect(escapeRow.join("")).not.toContain("\x1b[2J");
+			expect(strip(escapeRow.join(""))).toContain("visible");
+			// Sanitization parity with the host for the nastier sequences. pi-tui's
+			// stripTerminalSequences is NOT usable here: it scans to the first m/G/K/H/J, so
+			// "keep ESC[?25l me" loses the text between, and it misses C1 entirely.
+			const clean = (input: string) => strip(draw(input).join("")).replace(/ +$/gm, "").trimEnd();
+			expect(clean("a\u009b?25lb")).toBe("ab");
+			expect(clean("a\x1b[?25lb")).toBe("ab");
+			expect(clean("a\x1b[<35;59;1Mb")).toBe("ab");
+			expect(clean("a\x1b]8;;http://x\x07b")).toBe("ab");
+			expect(clean("a\x1b]52;c;Zm9v\x07b")).toBe("ab");
+			expect(clean("a\x07b")).toBe("ab");
+			expect(clean("a\rb")).toBe("ab");
+			// The text between a private CSI and what follows survives; the host keeps it too.
+			expect(clean("keep\x1b[?25lme")).toBe("keepme");
+
+			// Sanitized per block. Joining first would let the unterminated OSC run past the block
+			// boundary and swallow the next block's text up to its BEL.
+			const multi = (component.getResultRenderer() as any)(
+				{
+					content: [
+						{ type: "text", text: "keep\x1b]title" },
+						{ type: "text", text: "visible\x07after" },
+					],
+					details: {},
+				},
+				{ expanded: true },
+				bgTheme,
+				{ state: {}, outputPad: 1, expanded: true },
+			).render(60) as string[];
+			const multiText = strip(multi.join("\n"));
+			expect(multiText).toContain("visible");
+			expect(multiText).toContain("after");
+
+			// A whole SGR pair must vanish as a pair. Dropping only the ESC would leave `[31m` on
+			// screen as literal text, so this pins the sequence strip, not just the control filter.
+			const sgr = draw("a\x1b[31mb");
+			expect(strip(sgr.join(""))).not.toContain("[31m");
+			expect(strip(sgr.join("")).trimEnd()).toBe("ab");
+			// A bare NUL is not part of any sequence: only the control-character filter catches it.
+			expect(strip(draw("a\u0000b").join("")).trimEnd()).toBe("ab");
+			// The host drew this body with `toolOutput`; an identity theme would hide that.
+			const markTheme = { fg: (k: string, t: string) => `<${k}>${t}</>`, bold: (t: string) => t, getBgAnsi: () => bg };
+			const tinted = (component.getResultRenderer() as any)(
+				{ content: [{ type: "text", text: "hello" }], details: {} },
+				{ expanded: true },
+				markTheme,
+				{ state: {}, outputPad: 1, expanded: true },
+			).render(40) as string[];
+			expect(tinted.join("")).toContain("<toolOutput>");
+
+			const tabbed = draw("a\tb");
+			expect(tabbed.join("")).not.toContain("\t");
+			expect(strip(tabbed.join("")).trimEnd()).toBe("a   b");
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
+		});
+
+		it("paints a foreign tool's expanded result body but not pi-diff's", () => {
+			// codemode's expanded body is `theme.fg`-only text, and its shell is "self" so the host
+			// draws no box: unpainted it floats on the terminal background. pi-diff paints its own
+			// green/red hunks, and filling over them would replace the information.
+			const bg = "\x1b[48;2;30;30;46m";
+			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => bg };
+			const bodyOf = (toolName: string) => {
+				installClaudeExternalToolRenderers(FakeToolComponent, true);
+				const component = new FakeToolComponent();
+				component.toolName = toolName;
+				const rows = (component.getResultRenderer() as any)({ content: [], details: {} }, { expanded: true }, bgTheme, {
+					state: {},
+					outputPad: 1,
+					expanded: true,
+					lastComponent: undefined,
+				}).render(60) as string[];
+				installClaudeExternalToolRenderers(FakeToolComponent, false);
+				return rows;
+			};
+
+			const codeMode = bodyOf("codemode");
+			expect(codeMode).toHaveLength(1);
+			expect(codeMode[0]).toContain("DIFF");
+			expect(codeMode[0]).toContain(bg);
+			// write/edit/apply_patch keep pi-diff's own rows untouched.
+			expect(bodyOf("write")).toEqual(["DIFF"]);
+			expect(bodyOf("apply_patch")).toEqual(["DIFF"]);
 		});
 
 		it("summarizes codemode scripts and shows the source only when expanded", () => {
@@ -588,10 +711,11 @@ describe("claudecode tool style", () => {
 			installClaudeExternalToolRenderers(FakeToolComponent, false);
 		});
 
-		it("does not paint the expanded call body, only the header row", () => {
+		it("paints the expanded call body as well as the header row", () => {
 			// Only codemode passes a call body to claudeRenderers, so it is the one path where this
-			// assertion has rows to check. The body is the tool's own source listing, which Pi draws
-			// unpainted; painting only the header keeps one rule instead of two half-painted halves.
+			// assertion has rows to check. The claudecode shell is "self", so the host draws no box:
+			// leaving the body unpainted shows the terminal's own background as a hole under the
+			// header.
 			const bg = "\x1b[48;2;30;30;46m";
 			const bgTheme = { fg: (_k: string, t: string) => t, bold: (t: string) => t, getBgAnsi: () => bg };
 			installClaudeExternalToolRenderers(FakeToolComponent, true);
@@ -607,8 +731,7 @@ describe("claudecode tool style", () => {
 
 			// Without body rows this test would silently pass; prove there are some.
 			expect(rows.length).toBeGreaterThan(1);
-			expect(rows[0]).toContain(bg);
-			for (const row of rows.slice(1)) expect(row).not.toContain(bg);
+			for (const row of rows) expect(row).toContain(bg);
 		});
 	});
 
