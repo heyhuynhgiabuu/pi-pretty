@@ -170,6 +170,47 @@ describe("claudecode tool style", () => {
 		expect(lines.some((l: string) => l.includes("-removed line"))).toBe(true);
 	});
 
+	it("keeps a diff row's own background and blank spacing, but not the tool row's", () => {
+		// pi-diff paints added lines green and removed lines red. That background is the diff's
+		// content, so an inlined body row keeps it; the tool's own row background would stripe the
+		// group and is still dropped.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "edit", label: "Edit" });
+		const toolBg = "\x1b[48;2;30;30;46m";
+		const addBg = "\x1b[48;2;30;52;40m";
+		const delBg = "\x1b[48;2;60;30;30m";
+		const member = (id: string, expanded: boolean) => ({
+			toolCallId: id,
+			toolName: "edit",
+			result: {},
+			isPartial: false,
+			expanded,
+			render: () =>
+				expanded
+					? ["", `${toolBg} ✓ Edit (src/a.ts)`, `   ${addBg}+added`, "", `   ${delBg}-removed`]
+					: ["", `${toolBg} ✓ Edit (src/a.ts)`, "   └ +1 -1"],
+		});
+		const chat = new Container();
+		chat.addChild(member("a", false) as never);
+		chat.addChild(member("b", true) as never);
+		installClaudeChatGrouping(true);
+		const lines = chat.render(60) as string[];
+		installClaudeChatGrouping(false);
+		const joined = lines.join("\n");
+
+		// The diff keeps its own colours and the blank row that separates its hunks. Targeted at the
+		// row between `+added` and `-removed`: a stray blank elsewhere (the group's own trailing
+		// spacer) would otherwise satisfy a looser check.
+		expect(joined).toContain(addBg);
+		expect(joined).toContain(delBg);
+		const addedAt = lines.findIndex((l: string) => l.includes("+added"));
+		const removedAt = lines.findIndex((l: string) => l.includes("-removed"));
+		expect(removedAt - addedAt).toBe(2);
+		expect(strip(lines[addedAt + 1]).trim()).toBe("");
+		// The tool row's background is still dropped, so the group is not a stack of bars.
+		expect(joined).not.toContain(toolBg);
+	});
+
 	it("still breaks the group apart for a tool whose body a tree row cannot carry", () => {
 		// read highlights asynchronously and can hold an image payload; bash output runs to hundreds
 		// of lines. Keeping either inside a cached group would freeze the pre-highlight text, drop

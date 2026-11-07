@@ -616,11 +616,17 @@ function summaryRow(members: any[], width: number): string[] {
 function treeRows(members: any[], width: number): { lines: string[]; owners: any[] } {
 	// Text-less assistant turns only contribute to the summary's thought count; their
 	// own rows (a hidden-thinking label) would read as noise between the tool rows.
+	/** A row that carries a diff line, which keeps its own background and blank spacing. */
+	const isBodyRow = (member: any, lineIndex: number): boolean =>
+		lineIndex > 0 && Boolean(member.expanded) && GROUP_INLINE_BODY_TOOLS.has(member.toolName ?? "");
 	const blocks = members
 		.filter(isToolComponent)
 		.map((member) => ({
 			member,
-			rows: (member.render(width) as string[]).filter((line) => stripAnsi(line).trim() !== "" && !isImageLine(line)),
+			// Blank rows inside an inlined diff are hunks separated for readability, so they survive.
+			rows: (member.render(width) as string[]).filter(
+				(line, i) => !isImageLine(line) && (isBodyRow(member, i) || stripAnsi(line).trim() !== ""),
+			),
 		}))
 		.filter((block) => block.rows.length > 0);
 	const lines: string[] = [];
@@ -635,9 +641,13 @@ function treeRows(members: any[], width: number): { lines: string[]; owners: any
 			if (lineIndex === 0 && stripAnsi(line).trimStart().startsWith(ICON_SUCCESS))
 				content = line.replace(ICON_SUCCESS, "•");
 			if (lineIndex === 0 && isInterrupted(member)) content = markInterruptedRow(content);
-			// A group row is the tool's row inside a tree, so it keeps the text colours but not the
-			// painted background: a bar starting at the guide column would stripe the whole group.
-			const row = `  ${fg("dim", guide)}${preserveBoxBackground(content).replace(LEADING_SPACE_RE, "$1")}`;
+			// A group row is the tool's row inside a tree, so it drops the tool-row background: a bar
+			// starting at the guide column would stripe the whole group. A diff line is the exception —
+			// its green/red background IS the information, so an inlined body row keeps it.
+			const body = isBodyRow(member, lineIndex)
+				? content.replace(LEADING_SPACE_RE, "$1")
+				: preserveBoxBackground(content).replace(LEADING_SPACE_RE, "$1");
+			const row = `  ${fg("dim", guide)}${body}`;
 			lines.push(visibleWidth(row) > width ? truncateToWidth(row, width, "") : row);
 			owners.push(member);
 		});
