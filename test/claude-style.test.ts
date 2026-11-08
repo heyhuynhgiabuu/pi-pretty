@@ -387,11 +387,19 @@ describe("claudecode tool style", () => {
 			installClaudeChatGrouping(false);
 			return rows.join("\n");
 		};
+		// Positive assertions too: a negative-only check would also pass if nothing rendered at all.
+		const expectFlat = (toolName: string, expanded: boolean) => {
+			const text = render(toolName, expanded);
+			expect(text).not.toContain("Done (2 tool calls)");
+			expect(text).toContain(`✓ ${toolName} (a)`);
+			expect(text).toContain(`✓ ${toolName} (b)`);
+			expect(text.match(/\[image\]/g) ?? []).toHaveLength(2);
+		};
 		try {
-			// Collapsed and expanded, and for a tool other than `read`: no group summary either way.
-			expect(render("read", true)).not.toContain("Done (2 tool calls)");
-			expect(render("read", false)).not.toContain("Done (2 tool calls)");
-			expect(render("bash", false)).not.toContain("Done (2 tool calls)");
+			// Collapsed and expanded, and for a tool other than `read`.
+			expectFlat("read", true);
+			expectFlat("read", false);
+			expectFlat("bash", false);
 		} finally {
 			setClaudeStyleGroupInlineTools(undefined);
 			setClaudeStyleAgentActive(false);
