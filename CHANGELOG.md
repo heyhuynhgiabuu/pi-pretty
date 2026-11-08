@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.10.0] - 2026-11-08
+
+### Added
+
+- `claudeStyle.expandFileTools` (default `false`): open `write`/`edit`/`apply_patch` diffs by default instead of one collapsed `+N -N` row. Each file tool opens **once**, tracked in a `WeakSet`, so a later collapse from a click or Ctrl+O sticks. Opt-in because an open diff puts its group on the uncached render path.
+- `claudeStyle.groupInlineTools` (default `[]`): extra tool names, added to `write`/`edit`/`apply_patch`, whose expanded body stays inside a tool group instead of breaking it apart. Only affects tools the style already renders as rows (`bash` `read` `grep` `find` `ls` `write` `edit` `apply_patch` `codemode` `recall`) — an arbitrary MCP tool is ignored. Note that a group holding an expanded member cannot use the cached render path, so it re-renders every frame.
+
+### Changed
+
+- `toolStyle: "claudecode"`: an expanded file tool now keeps its place in the group and shows its diff inline, with pi-diff's own green and red row backgrounds. Every other tool still leaves the group when expanded, so its full output, syntax highlighting and images render as before.
+- Tool **bodies** are now painted, not just call headers. `codemode` and `recall` render in the host's `"self"` shell, where no box is drawn, so every unpainted row showed the terminal's own background — an expanded `codemode` script read as a hole under its header. `recall`, which has no result renderer of its own, now builds a body instead of falling back to the host's plain-text path. `task`, `agents` and `peer` are deliberately untouched: they keep the host `Box`, which already paints `toolPendingBg`/`toolSuccessBg`/`toolErrorBg` with the right padding.
+- `config.claudeStyle` is now built member by member. It was assigned wholesale, so a second key would have silently erased the first.
+
+### Fixed
+
+- `recall`'s expanded body is sanitized before it is drawn. Raw escape sequences in tool output — an OSC title change, `ESC[2J` — previously reached the terminal, which can reprogram it. Stripping is per content block, in the host's order (ANSI, then binary controls, then CR): sanitizing after joining blocks let an unterminated OSC in one block consume the next block's text up to its BEL.
+- `pi-tui`'s `stripTerminalSequences` is not used for that: it scans to the first `m`/`G`/`K`/`H`/`J` and discards everything between, so `"keep ESC[?25l me"` becomes `"keepe"`, and it misses C1 entirely. The ANSI regex is ported from the host's `utils/ansi.js` instead.
+- A tool whose result carries an image now always breaks its group, config or not. A tree row filters image payload lines, so grouping one hid the image behind its fallback note. The check is structural and independent of expansion, because the host adds its image components whether or not the tool is expanded.
+
+#### Verification
+
+- 381 tests passing across 25 files; typecheck and build passing; no new lint errors.
+- Ten mutations, each caught: the three paint sites, the pi-diff exclusion, `external = true` on the local path, the ANSI filter, the control filter, the `toolOutput` foreground, the `Text` background, sanitizing after the join, CR before the ANSI strip, the image guard, and its expansion-independence.
+
 ## [0.9.0] - 2026-11-02
 
 ### Fixed
