@@ -353,6 +353,8 @@ describe("claudecode tool style", () => {
 			expect(grouped).toContain("Done (2 tool calls)");
 			expect(grouped).toContain("├─ • Bash (a)");
 			expect(grouped).toContain("└─ • Bash (b)");
+			// The point of the key is the body staying in the group, so assert the bodies too.
+			expect(grouped).toContain("└ out");
 		} finally {
 			setClaudeStyleGroupInlineTools(undefined);
 			setClaudeStyleAgentActive(false);
