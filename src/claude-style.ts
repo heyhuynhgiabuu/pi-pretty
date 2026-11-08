@@ -620,6 +620,22 @@ export function setClaudeStyleExpandFileTools(enabled: boolean): void {
 	expandFileTools = enabled;
 }
 
+/** `claudeStyle.groupInlineTools`: extra names added to `GROUP_INLINE_BODY_TOOLS`. */
+let extraInlineTools = new Set<string>();
+
+export function setClaudeStyleGroupInlineTools(names: readonly string[] | undefined): void {
+	extraInlineTools = new Set(names ?? []);
+}
+
+/** A tool result carrying an image block: the host renders those itself, outside a tree row. */
+function hasImageBlock(result: any): boolean {
+	return (Array.isArray(result?.content) ? result.content : []).some((block: any) => block?.type === "image");
+}
+
+/** Built-in inline body tools plus whatever the config adds. */
+const inlinesBody = (toolName: string | undefined): boolean =>
+	GROUP_INLINE_BODY_TOOLS.has(toolName ?? "") || extraInlineTools.has(toolName ?? "");
+
 const fg = (color: string, text: string): string => groupTheme.fg(color, text);
 const bold = (text: string): string => groupTheme.bold(text);
 
@@ -871,6 +887,9 @@ function renderGrouped(container: any, width: number): string[] {
 		// A file tool opens by default, but only once: it needs a result to show, and re-opening it
 		// every frame would undo the collapse a click or Ctrl+O just asked for. `setExpanded` always
 		// rebuilds the component, so this stays out of the steady state.
+		// Deliberately the built-in file tools only: `expandFileTools` is about diffs, and opening
+		// every tool a config adds to `groupInlineTools` would surprise the user with a body they
+		// never asked to see.
 		if (expandFileTools) {
 			for (const tool of tools) {
 				if (autoOpenedFileTools.has(tool)) continue;
@@ -883,7 +902,14 @@ function renderGrouped(container: any, width: number): string[] {
 		if (!agentActive) {
 			for (const tool of tools) if (!tool.result) interruptedTools.add(tool);
 		}
-		const leavesGroup = tools.some((tool) => tool.expanded && !GROUP_INLINE_BODY_TOOLS.has(tool.toolName ?? ""));
+		// An image-bearing result cannot ride a tree row: `treeRows` drops image payload lines, so
+		// keeping such a tool inline would hide the image behind its fallback note.
+		// Independently of expansion: the host adds its image components whenever a result carries an
+		// image, and `treeRows` filters image payload lines out, so a grouped image result — collapsed
+		// or expanded — shows the fallback note instead of the image.
+		const leavesGroup =
+			tools.some((tool) => hasImageBlock(tool.result)) ||
+			tools.some((tool) => tool.expanded && !inlinesBody(tool.toolName));
 		if (tools.length < MIN_GROUPED_TOOLS || leavesGroup) {
 			for (const member of members) {
 				const rendered = member.render(width);

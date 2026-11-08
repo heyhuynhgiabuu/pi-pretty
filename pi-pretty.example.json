@@ -7,7 +7,8 @@
 	"icons": "nerd",
 	"toolStyle": "default",
 	"claudeStyle": {
-		"expandFileTools": false
+		"expandFileTools": false,
+		"groupInlineTools": []
 	},
 	"userRail": "#3a3a4a",
 	"enableTools": [

@@ -6,6 +6,7 @@ import {
 	installClaudeExternalToolRenderers,
 	setClaudeStyleAgentActive,
 	setClaudeStyleExpandFileTools,
+	setClaudeStyleGroupInlineTools,
 	setClaudeStyleTheme,
 	withClaudeToolStyle,
 } from "../src/claude-style.js";
@@ -314,6 +315,95 @@ describe("claudecode tool style", () => {
 
 		expect(opened).toBe(0);
 		expect((container.children as any[]).every((c) => c.expanded === false)).toBe(true);
+	});
+
+	it("keeps a config-listed tool inside its group when expanded", () => {
+		// `claudeStyle.groupInlineTools`: any tool with a short body can keep its group, not just the
+		// file tools. Set and reset in try/finally because an assertion failure would otherwise leak
+		// the module-level state into every later test.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "bash", label: "Bash" });
+		setClaudeStyleAgentActive(true);
+		const render = (grouped: boolean) => {
+			setClaudeStyleGroupInlineTools(grouped ? ["bash"] : undefined);
+			const member = (id: string) => ({
+				toolCallId: id,
+				toolName: "bash",
+				result: {},
+				isPartial: false,
+				expanded: true,
+				render: () => ["", ` ✓ Bash (${id})`, "   └ out"],
+			});
+			const container = new Container();
+			container.addChild(member("a") as never);
+			container.addChild(member("b") as never);
+			installClaudeChatGrouping(true);
+			const rows = container.render(80) as string[];
+			installClaudeChatGrouping(false);
+			return rows;
+		};
+		const text = (rows: string[]) => strip(rows.join("\n"));
+		try {
+			// Off: an expanded non-file tool breaks the group, so each member renders flat.
+			const flat = text(render(false));
+			expect(flat).not.toContain("Done (2 tool calls)");
+
+			// On: the group survives and both expanded bodies sit on its tree rows.
+			const grouped = text(render(true));
+			expect(grouped).toContain("Done (2 tool calls)");
+			expect(grouped).toContain("├─ • Bash (a)");
+			expect(grouped).toContain("└─ • Bash (b)");
+			// The point of the key is the body staying in the group, so assert the bodies too.
+			expect(grouped).toContain("└ out");
+		} finally {
+			setClaudeStyleGroupInlineTools(undefined);
+			setClaudeStyleAgentActive(false);
+		}
+	});
+
+	it("keeps an image-bearing tool out of the group, collapsed or expanded", () => {
+		// A tree row drops image payload lines, so grouping an image result hides the image behind its
+		// fallback note. The host adds image components regardless of expansion, so this cannot depend
+		// on it — and it must not be a `read`-only rule.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "read", label: "Read" });
+		withClaudeToolStyle({ name: "bash", label: "Bash" });
+		setClaudeStyleAgentActive(true);
+		const render = (toolName: string, expanded: boolean) => {
+			setClaudeStyleGroupInlineTools([toolName]);
+			const member = (id: string) => ({
+				toolCallId: id,
+				toolName,
+				result: { content: [{ type: "image", mimeType: "image/png", data: "AAA" }] },
+				isPartial: false,
+				expanded,
+				render: () => ["", ` ✓ ${toolName} (${id})`, "   [image]"],
+			});
+			const container = new Container();
+			container.addChild(member("a") as never);
+			container.addChild(member("b") as never);
+			installClaudeChatGrouping(true);
+			const rows = (container.render(80) as string[]).map(strip);
+			installClaudeChatGrouping(false);
+			return rows.join("\n");
+		};
+		// Positive assertions too: a negative-only check would also pass if nothing rendered at all.
+		const expectFlat = (toolName: string, expanded: boolean) => {
+			const text = render(toolName, expanded);
+			expect(text).not.toContain("Done (2 tool calls)");
+			expect(text).toContain(`✓ ${toolName} (a)`);
+			expect(text).toContain(`✓ ${toolName} (b)`);
+			expect(text.match(/\[image\]/g) ?? []).toHaveLength(2);
+		};
+		try {
+			// Collapsed and expanded, and for a tool other than `read`.
+			expectFlat("read", true);
+			expectFlat("read", false);
+			expectFlat("bash", false);
+		} finally {
+			setClaudeStyleGroupInlineTools(undefined);
+			setClaudeStyleAgentActive(false);
+		}
 	});
 
 	it("leaves a file tool collapsed when expandFileTools is off", () => {
