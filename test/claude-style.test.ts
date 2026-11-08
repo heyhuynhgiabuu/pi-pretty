@@ -361,31 +361,41 @@ describe("claudecode tool style", () => {
 		}
 	});
 
-	it("keeps an image-bearing tool out of the group even when listed", () => {
-		// A tree row drops image payload lines, so grouping an image result would hide the image
-		// behind its fallback note. The config must not be able to reintroduce that.
+	it("keeps an image-bearing tool out of the group, collapsed or expanded", () => {
+		// A tree row drops image payload lines, so grouping an image result hides the image behind its
+		// fallback note. The host adds image components regardless of expansion, so this cannot depend
+		// on it — and it must not be a `read`-only rule.
 		setClaudeStyleTheme(theme);
 		withClaudeToolStyle({ name: "read", label: "Read" });
+		withClaudeToolStyle({ name: "bash", label: "Bash" });
 		setClaudeStyleAgentActive(true);
-		setClaudeStyleGroupInlineTools(["read"]);
-		const member = (id: string) => ({
-			toolCallId: id,
-			toolName: "read",
-			result: { content: [{ type: "image", mimeType: "image/png", data: "AAA" }] },
-			isPartial: false,
-			expanded: true,
-			render: () => ["", ` ✓ Read (${id})`, "   [image]"],
-		});
-		const container = new Container();
-		container.addChild(member("a") as never);
-		container.addChild(member("b") as never);
-		installClaudeChatGrouping(true);
-		const rows = (container.render(80) as string[]).map(strip);
-		installClaudeChatGrouping(false);
-		setClaudeStyleGroupInlineTools(undefined);
-
-		// Broken apart, like any other non-inline tool: no group summary row.
-		expect(rows.join("\n")).not.toContain("Done (2 tool calls)");
+		const render = (toolName: string, expanded: boolean) => {
+			setClaudeStyleGroupInlineTools([toolName]);
+			const member = (id: string) => ({
+				toolCallId: id,
+				toolName,
+				result: { content: [{ type: "image", mimeType: "image/png", data: "AAA" }] },
+				isPartial: false,
+				expanded,
+				render: () => ["", ` ✓ ${toolName} (${id})`, "   [image]"],
+			});
+			const container = new Container();
+			container.addChild(member("a") as never);
+			container.addChild(member("b") as never);
+			installClaudeChatGrouping(true);
+			const rows = (container.render(80) as string[]).map(strip);
+			installClaudeChatGrouping(false);
+			return rows.join("\n");
+		};
+		try {
+			// Collapsed and expanded, and for a tool other than `read`: no group summary either way.
+			expect(render("read", true)).not.toContain("Done (2 tool calls)");
+			expect(render("read", false)).not.toContain("Done (2 tool calls)");
+			expect(render("bash", false)).not.toContain("Done (2 tool calls)");
+		} finally {
+			setClaudeStyleGroupInlineTools(undefined);
+			setClaudeStyleAgentActive(false);
+		}
 	});
 
 	it("leaves a file tool collapsed when expandFileTools is off", () => {

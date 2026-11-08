@@ -904,9 +904,12 @@ function renderGrouped(container: any, width: number): string[] {
 		}
 		// An image-bearing result cannot ride a tree row: `treeRows` drops image payload lines, so
 		// keeping such a tool inline would hide the image behind its fallback note.
-		const leavesGroup = tools.some(
-			(tool) => tool.expanded && (!inlinesBody(tool.toolName) || hasImageBlock(tool.result)),
-		);
+		// Independently of expansion: the host adds its image components whenever a result carries an
+		// image, and `treeRows` filters image payload lines out, so a grouped image result — collapsed
+		// or expanded — shows the fallback note instead of the image.
+		const leavesGroup =
+			tools.some((tool) => hasImageBlock(tool.result)) ||
+			tools.some((tool) => tool.expanded && !inlinesBody(tool.toolName));
 		if (tools.length < MIN_GROUPED_TOOLS || leavesGroup) {
 			for (const member of members) {
 				const rendered = member.render(width);
