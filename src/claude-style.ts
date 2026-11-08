@@ -13,7 +13,7 @@
  */
 
 import { highlightCode, keyText } from "@earendil-works/pi-coding-agent";
-import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { BG_BASE, BG_ERROR, resolveBaseBackground } from "./config.js";
 import { ELAPSED_KEY, shortPath } from "./helpers.js";
 import { fillToolBackground, preserveBoxBackground } from "./render.js";
@@ -23,6 +23,30 @@ type AnyFn = (...args: any[]) => any;
 type AnyComponent = { render(width: number): string[]; invalidate?(): void; [key: string]: any };
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+// Escape-sequence stripping, ported from the host's `utils/ansi.js` (via ansi-regex / strip-ansi,
+// MIT). Not importable: that package exports only "." and "./rpc-entry". pi-tui's
+// `stripTerminalSequences` is not a substitute — it scans to the first m/G/K/H/J, so on
+// "keep ESC[?25l me" it eats the text between, and it misses C1 (\u009b) entirely. A private
+// prefix (<, =, >) is accepted only right after a real CSI introducer, so ESC[<35;59;1M strips
+// whole while ESC = does not swallow the digits that follow.
+const ANSI_ST = `(?:${String.fromCharCode(7)}|\\u001B\\\\|\\u009C)`;
+const ANSI_OSC_START = "\\u001B\\]";
+const ANSI_CSI_START = "(?:(?:\\u001B\\[|\\u009B)[<=>]|[\\u001B\\u009B][[\\]()#;?]*)(?:\\d{1,4}(?:[;:]\\d{0,4})*)?";
+const ANSI_CSI_FINAL = "[\\dA-PR-TZcf-nq-uy=><~]";
+const ANSI_SEQUENCE_RE = new RegExp(
+	`(?:${ANSI_OSC_START}[\\s\\S]*?${ANSI_ST})|${ANSI_CSI_START}${ANSI_CSI_FINAL}`,
+	"g",
+);
+/** C0/C1 controls and the interlinear-annotation block, built from char codes because a literal
+ * control character in a regex is flagged by the linter. Tab and newline are absent: both are
+ * layout the host keeps, and `Text` turns each tab into three spaces. */
+const CONTROL_CHARS_RE = new RegExp(
+	`[${String.fromCharCode(0)}-${String.fromCharCode(8)}${String.fromCharCode(11)}${String.fromCharCode(12)}` +
+		`${String.fromCharCode(14)}-${String.fromCharCode(31)}${String.fromCharCode(127)}-${String.fromCharCode(159)}` +
+		`${String.fromCharCode(0xfff9)}-${String.fromCharCode(0xfffb)}]`,
+	"g",
+);
+
 // Kitty (`ESC _G`) and iTerm2 (`ESC ]1337;File=`) inline-image payload lines.
 const IMAGE_LINE_RE = new RegExp(`${String.fromCharCode(27)}(?:_G|\\]1337;File=)`);
 const isImageLine = (line: string): boolean => IMAGE_LINE_RE.test(line);
@@ -170,6 +194,22 @@ function resultText(result: any): string {
 	return ((result?.content ?? []) as Array<{ type?: string; text?: string }>)
 		.filter((block) => block.type === "text")
 		.map((block) => block.text ?? "")
+		.join("\n");
+}
+
+/** Sanitized body text for a tool with no renderer of its own.
+ *
+ * Per block, like the host: joining first lets an unterminated escape in one block swallow the
+ * text of the next. With blocks `["keep ESC]title", "visible BEL after"]` the join-first order
+ * loses "visible", because the unterminated OSC then runs on to the BEL. */
+function sanitizedBodyText(result: any): string {
+	return ((result?.content ?? []) as Array<{ type?: string; text?: string }>)
+		.filter((block) => block.type === "text")
+		.map((block) =>
+			// Host order: strip ANSI, then binary controls, then CR. Removing CR first would let
+			// "a ESC CR [31m b" read as a complete SGR and lose "[31m" from the text.
+			(block.text ?? "").replace(ANSI_SEQUENCE_RE, "").replace(CONTROL_CHARS_RE, "").replace(/\r/g, ""),
+		)
 		.join("\n");
 }
 
@@ -321,6 +361,19 @@ function fitLine(line: string, width: number, theme: ThemeLike): string {
 	return visibleWidth(line) > width ? truncateToWidth(line, width, theme.fg("dim", "…")) : line;
 }
 
+/** Paint a delegated expanded body. The claudecode shell is "self", so the host draws no box: a
+ * tool whose original renderer emits plain or foreground-only rows would otherwise float on the
+ * terminal's own background. Tools that paint their own rows keep them untouched. */
+function paintedBody(component: AnyComponent, bg: string): AnyComponent {
+	return {
+		render: (width: number) =>
+			(component.render(Math.max(1, width)) as string[]).map((line) =>
+				isImageLine(line) ? line : fillToolBackground(line, bg, width, ""),
+			),
+		invalidate: () => component.invalidate?.(),
+	};
+}
+
 function buildCallRow(
 	theme: ThemeLike,
 	ctx: RenderCtxLike,
@@ -338,12 +391,12 @@ function buildCallRow(
 		const body = detail ? ` ${theme.fg("dim", "(")}${theme.fg("muted", detail)}${theme.fg("dim", ")")}` : "";
 		const indent = `${indentOf(ctx)}  `;
 		const title = fitLine(`${head}${body}${hint}`, width, theme);
-		return [
-			// Fill after truncating: truncateToWidth counts background sequences as visible width.
-			// An empty indent pads the row to the render width, so the colour reaches the edge.
-			fillToolBackground(title, bg, width, ""),
-			...bodyLines.map((line) => fitLine(`${indent}${line}`, width, theme)),
-		];
+		// Fill after truncating: truncateToWidth counts background sequences as visible width.
+		// An empty indent pads the row to the render width, so the colour reaches the edge.
+		// The body is painted too: this shell is "self", so the host draws no box and every row it
+		// leaves unpainted shows the terminal's own background (a codemode script reads as a hole).
+		const painted = (line: string): string => fillToolBackground(line, bg, width, "");
+		return [painted(title), ...bodyLines.map((line) => painted(fitLine(`${indent}${line}`, width, theme)))];
 	});
 }
 
@@ -369,8 +422,14 @@ type CallBody = (args: Record<string, unknown>) => string[];
 const codemodeSource: CallBody = (args) =>
 	highlightCode(firstString(args, ["code"]).replace(/\r/g, "").replace(/\t/g, "  ").trimEnd(), "javascript");
 
-/** Renderer pair for one tool; `original` is the result renderer shown when expanded. */
-function claudeRenderers(name: string, label: string, original?: AnyFn, expandedCallBody?: CallBody) {
+/** Tools whose expanded body already carries its own background, so painting it would replace
+ * colour that is the information: pi-diff's green/red hunks. */
+const SELF_PAINTED_BODY_TOOLS = new Set(["write", "edit", "apply_patch"]);
+
+/** Renderer pair for one tool; `original` is the result renderer shown when expanded.
+ * `external` marks the installer path whose shell is "self": the host draws no box there, so the
+ * expanded body must be painted here. pi-pretty's own tools paint their own bodies already. */
+function claudeRenderers(name: string, label: string, original?: AnyFn, expandedCallBody?: CallBody, external = false) {
 	return {
 		renderCall(args: Record<string, unknown>, theme: ThemeLike, ctx: RenderCtxLike) {
 			const state: ToolState = ctx.isError
@@ -397,7 +456,32 @@ function claudeRenderers(name: string, label: string, original?: AnyFn, expanded
 			ctx: RenderCtxLike,
 		) {
 			if (options?.isPartial) return rowComponent(() => []);
-			if (ctx.expanded && original) return original(result, options, theme, ctx);
+			// No renderer of its own (recall): the host would fall back to plain `toolOutput` text on
+			// this "self" shell, which has no box, so the body would float unpainted. Build it here.
+			if (ctx.expanded && !original && external) {
+				// The host fallback stripped ANSI and binary controls, dropped carriage returns, then
+				// rendered through a Text component. Skipping any of that would let a raw escape reach the
+				// terminal or misalign a tabbed row.
+				const text = sanitizedBodyText(result);
+				if (!text.trim()) return rowComponent(() => []);
+				resolveBaseBackground(theme);
+				const bg = ctx.isError ? BG_ERROR : BG_BASE;
+				// Drawn through the host's own Text: it wraps (so a long entry is not cut), turns tabs into
+				// three spaces, and pads each row to the render width before the background is applied.
+				const body = new Text(theme.fg("toolOutput", text), 0, 0, (line: string) =>
+					fillToolBackground(line, bg, undefined, ""),
+				);
+				return {
+					render: (width: number) => body.render(Math.max(1, width)),
+					invalidate: () => body.invalidate(),
+				};
+			}
+			if (ctx.expanded && original) {
+				const body = original(result, options, theme, ctx);
+				if (!external || !body || SELF_PAINTED_BODY_TOOLS.has(name)) return body;
+				resolveBaseBackground(theme);
+				return paintedBody(body, ctx.isError ? BG_ERROR : BG_BASE);
+			}
 			if (ctx.isError) {
 				const message = oneLine(
 					resultText(result)
@@ -495,9 +579,7 @@ export function installClaudeExternalToolRenderers(toolExecutionComponent: unkno
 	proto.getResultRenderer = function (this: any) {
 		const original = originals.getResultRenderer.call(this);
 		if (!isExternalTool(this)) return original;
-		// A tool with no result renderer of its own (recall) gets the host's plain text fallback when expanded.
-		if (!original && this.expanded) return undefined;
-		return claudeRenderers(this.toolName, labelOf(this), isolateDelegate(original)).renderResult;
+		return claudeRenderers(this.toolName, labelOf(this), isolateDelegate(original), undefined, true).renderResult;
 	};
 	// The shell is fixed when the component is built, and the style draws its own rows without a box.
 	proto.getRenderShell = function (this: any) {
