@@ -68,15 +68,40 @@ describe("loadConfig", () => {
 		});
 	});
 
+	it("merges every claudeStyle key instead of dropping the others", async () => {
+		// The earlier implementation assigned `config.claudeStyle` wholesale, so a second key
+		// silently erased the first. Both must survive, and tool names are normalised like
+		// enableTools/disableTools.
+		const { loadConfig } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
+		const dir = makeConfigDir(
+			JSON.stringify({
+				toolStyle: "claudecode",
+				claudeStyle: { expandFileTools: true, groupInlineTools: [" Bash ", "codemode", 7, ""] },
+			}),
+		);
+		expect(loadConfig(dir).claudeStyle).toEqual({
+			expandFileTools: true,
+			groupInlineTools: ["bash", "codemode"],
+		});
+	});
+
+	it("rejects a non-array groupInlineTools without losing expandFileTools", async () => {
+		const { loadConfig } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
+		const dir = makeConfigDir(JSON.stringify({ claudeStyle: { expandFileTools: false, groupInlineTools: "bash" } }));
+		expect(loadConfig(dir).claudeStyle).toEqual({ expandFileTools: false });
+	});
+
 	it("validates FFF broad-scan settings", async () => {
 		const { loadConfig } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
-		const dir = makeConfigDir(JSON.stringify({
-			fff: {
-				enableHomeScanning: true,
-				enableRootScanning: "yes",
-				other: true,
-			},
-		}));
+		const dir = makeConfigDir(
+			JSON.stringify({
+				fff: {
+					enableHomeScanning: true,
+					enableRootScanning: "yes",
+					other: true,
+				},
+			}),
+		);
 		expect(loadConfig(dir)).toEqual({ fff: { enableHomeScanning: true } });
 	});
 
@@ -169,10 +194,12 @@ describe("resolveFffScanSettings", () => {
 		vi.stubEnv("PRETTY_FFF_HOME_SCAN", "false");
 		vi.stubEnv("PRETTY_FFF_ROOT_SCAN", "true");
 		const { resolveFffScanSettings } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
-		expect(resolveFffScanSettings(
-			{ fff: { enableHomeScanning: false, enableRootScanning: false } },
-			{ enableHomeScanning: true },
-		)).toEqual({ enableHomeScanning: true, enableRootScanning: true });
+		expect(
+			resolveFffScanSettings(
+				{ fff: { enableHomeScanning: false, enableRootScanning: false } },
+				{ enableHomeScanning: true },
+			),
+		).toEqual({ enableHomeScanning: true, enableRootScanning: true });
 	});
 
 	it("ignores invalid boolean overrides", async () => {

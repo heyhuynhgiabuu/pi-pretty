@@ -27,6 +27,7 @@ import {
 	resetClaudeStyleSessionState,
 	setClaudeStyleAgentActive,
 	setClaudeStyleExpandFileTools,
+	setClaudeStyleGroupInlineTools,
 	setClaudeStyleTheme,
 	withClaudeToolStyleApi,
 } from "./claude-style.js";
@@ -89,6 +90,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	applyConfig(config);
 	const claudeStyle = config.toolStyle === "claudecode";
 	setClaudeStyleExpandFileTools(claudeStyle && Boolean(config.claudeStyle?.expandFileTools));
+	setClaudeStyleGroupInlineTools(claudeStyle ? config.claudeStyle?.groupInlineTools : undefined);
 	setClaudeThinkingLabels(claudeStyle);
 	// claudecode style keeps user messages plain; the default style prefixes them with a prompt icon.
 	if (!claudeStyle) {

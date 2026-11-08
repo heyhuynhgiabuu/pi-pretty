@@ -177,6 +177,7 @@ Place a JSON file alongside Pi's `settings.json` to customize pi-pretty. Every o
 | `fff.enableRootScanning` | boolean | `PRETTY_FFF_ROOT_SCAN` (`1`/`0`) | `false` |
 | `toolStyle` | `default` \| `claudecode` | — | `default` |
 | `claudeStyle.expandFileTools` | `claudecode` only: boolean; open `write`/`edit`/`apply_patch` diffs by default instead of one collapsed `+N -N` row. Ctrl+O still toggles them with everything else | — | `false` |
+| `claudeStyle.groupInlineTools` | `claudecode` only: array of tool names whose expanded body stays inside a tool group instead of breaking it apart, added to `write`/`edit`/`apply_patch`. Only sensible for short bodies; a long body, an async highlight pass or an image payload belongs outside a group row | — | `[]` |
 | `userRail` | `#rrggbb`; draws a one-cell tinted bar left of user messages instead of a full-width background, so translucent/acrylic terminals keep their blur | — | unset (disabled) |
 | `workingIndicator.enabled` | boolean | `PRETTY_WORKING_INDICATOR` (`on`/`off`) | `true` |
 | `workingIndicator.text` | string or string[] (phrases rotated per sweep; env accepts comma-separated) | `PRETTY_WORKING_INDICATOR_TEXT` | `["Working…"]` |

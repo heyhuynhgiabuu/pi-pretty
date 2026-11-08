@@ -125,7 +125,12 @@ export interface PrettyConfig {
 	toolStyle?: "default" | "claudecode";
 	/** `claudecode` only: show `write`/`edit`/`apply_patch` diffs by default instead of one
 	 * collapsed `+N -N` row. Ctrl+O still toggles them with everything else. */
-	claudeStyle?: { expandFileTools?: boolean };
+	claudeStyle?: {
+		expandFileTools?: boolean;
+		/** Extra tools whose expanded body stays inside the group instead of breaking it apart,
+		 * added to `write`/`edit`/`apply_patch`. Only sensible for tools with a short body. */
+		groupInlineTools?: string[];
+	};
 	fff?: FffConfig;
 }
 
@@ -165,8 +170,14 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 		}
 		if (typeof parsed.theme === "string" && parsed.theme.trim() !== "") config.theme = parsed.theme;
 		if (parsed.toolStyle === "default" || parsed.toolStyle === "claudecode") config.toolStyle = parsed.toolStyle;
-		if (typeof parsed.claudeStyle?.expandFileTools === "boolean") {
-			config.claudeStyle = { expandFileTools: parsed.claudeStyle.expandFileTools };
+		// Built member by member: assigning `config.claudeStyle` wholesale would make each key
+		// silently drop the others when a config sets more than one.
+		const expandFileTools = parsed.claudeStyle?.expandFileTools;
+		const groupInlineTools = normalizeToolList(parsed.claudeStyle?.groupInlineTools);
+		if (typeof expandFileTools === "boolean" || groupInlineTools.length) {
+			config.claudeStyle = {};
+			if (typeof expandFileTools === "boolean") config.claudeStyle.expandFileTools = expandFileTools;
+			if (groupInlineTools.length) config.claudeStyle.groupInlineTools = groupInlineTools;
 		}
 		if (typeof parsed.userRail === "string" && /^#[0-9a-fA-F]{6}$/.test(parsed.userRail))
 			config.userRail = parsed.userRail;

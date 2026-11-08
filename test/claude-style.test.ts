@@ -6,6 +6,7 @@ import {
 	installClaudeExternalToolRenderers,
 	setClaudeStyleAgentActive,
 	setClaudeStyleExpandFileTools,
+	setClaudeStyleGroupInlineTools,
 	setClaudeStyleTheme,
 	withClaudeToolStyle,
 } from "../src/claude-style.js";
@@ -314,6 +315,48 @@ describe("claudecode tool style", () => {
 
 		expect(opened).toBe(0);
 		expect((container.children as any[]).every((c) => c.expanded === false)).toBe(true);
+	});
+
+	it("keeps a config-listed tool inside its group when expanded", () => {
+		// `claudeStyle.groupInlineTools`: any tool with a short body can keep its group, not just the
+		// file tools. Set and reset in try/finally because an assertion failure would otherwise leak
+		// the module-level state into every later test.
+		setClaudeStyleTheme(theme);
+		withClaudeToolStyle({ name: "bash", label: "Bash" });
+		setClaudeStyleAgentActive(true);
+		const render = (grouped: boolean) => {
+			setClaudeStyleGroupInlineTools(grouped ? ["bash"] : undefined);
+			const member = (id: string) => ({
+				toolCallId: id,
+				toolName: "bash",
+				result: {},
+				isPartial: false,
+				expanded: true,
+				render: () => ["", ` ✓ Bash (${id})`, "   └ out"],
+			});
+			const container = new Container();
+			container.addChild(member("a") as never);
+			container.addChild(member("b") as never);
+			installClaudeChatGrouping(true);
+			const rows = container.render(80) as string[];
+			installClaudeChatGrouping(false);
+			return rows;
+		};
+		const text = (rows: string[]) => strip(rows.join("\n"));
+		try {
+			// Off: an expanded non-file tool breaks the group, so each member renders flat.
+			const flat = text(render(false));
+			expect(flat).not.toContain("Done (2 tool calls)");
+
+			// On: the group survives and both expanded bodies sit on its tree rows.
+			const grouped = text(render(true));
+			expect(grouped).toContain("Done (2 tool calls)");
+			expect(grouped).toContain("├─ • Bash (a)");
+			expect(grouped).toContain("└─ • Bash (b)");
+		} finally {
+			setClaudeStyleGroupInlineTools(undefined);
+			setClaudeStyleAgentActive(false);
+		}
 	});
 
 	it("leaves a file tool collapsed when expandFileTools is off", () => {
