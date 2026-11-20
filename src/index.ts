@@ -139,7 +139,9 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 
 	const maybeGetAgentDir = deps?.sdk?.getAgentDir;
 	const agentDir = typeof maybeGetAgentDir === "function" ? maybeGetAgentDir() : getDefaultAgentDir();
-	const fffService: FffService | null = getSharedFffService(deps?.fffModule, agentDir);
+	// Disabled means no service at all: creating one loads the native module, and find/grep already
+	// fall back to the SDK on null.
+	const fffService: FffService | null = fffScanSettings.enabled ? getSharedFffService(deps?.fffModule, agentDir) : null;
 
 	// Text component for custom rendering (DI-friendly)
 	const TextComp = deps?.TextComponent;

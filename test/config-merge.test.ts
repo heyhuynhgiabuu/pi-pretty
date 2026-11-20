@@ -184,13 +184,27 @@ describe("applyConfig", () => {
 
 describe("resolveFffScanSettings", () => {
 	it("uses safe defaults", async () => {
+		vi.stubEnv("PRETTY_FFF", "");
 		vi.stubEnv("PRETTY_FFF_HOME_SCAN", "");
 		vi.stubEnv("PRETTY_FFF_ROOT_SCAN", "");
 		const { resolveFffScanSettings } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
-		expect(resolveFffScanSettings({})).toEqual({ enableHomeScanning: false, enableRootScanning: false });
+		expect(resolveFffScanSettings({})).toEqual({ enabled: true, enableHomeScanning: false, enableRootScanning: false });
+	});
+
+	it("turns indexing off from config, environment or flag, environment winning", async () => {
+		vi.stubEnv("PRETTY_FFF_HOME_SCAN", "");
+		vi.stubEnv("PRETTY_FFF_ROOT_SCAN", "");
+		vi.stubEnv("PRETTY_FFF", "");
+		const { resolveFffScanSettings } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
+		expect(resolveFffScanSettings({ fff: { enabled: false } }).enabled).toBe(false);
+		vi.stubEnv("PRETTY_FFF", "0");
+		expect(resolveFffScanSettings({ fff: { enabled: true } }).enabled).toBe(false);
+		vi.stubEnv("PRETTY_FFF", "1");
+		expect(resolveFffScanSettings({ fff: { enabled: false } }).enabled).toBe(true);
 	});
 
 	it("applies config, then environment, then CLI flags", async () => {
+		vi.stubEnv("PRETTY_FFF", "");
 		vi.stubEnv("PRETTY_FFF_HOME_SCAN", "false");
 		vi.stubEnv("PRETTY_FFF_ROOT_SCAN", "true");
 		const { resolveFffScanSettings } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
@@ -199,14 +213,16 @@ describe("resolveFffScanSettings", () => {
 				{ fff: { enableHomeScanning: false, enableRootScanning: false } },
 				{ enableHomeScanning: true },
 			),
-		).toEqual({ enableHomeScanning: true, enableRootScanning: true });
+		).toEqual({ enabled: true, enableHomeScanning: true, enableRootScanning: true });
 	});
 
 	it("ignores invalid boolean overrides", async () => {
+		vi.stubEnv("PRETTY_FFF", "");
 		vi.stubEnv("PRETTY_FFF_HOME_SCAN", "maybe");
 		vi.stubEnv("PRETTY_FFF_ROOT_SCAN", "");
 		const { resolveFffScanSettings } = await freshModule<typeof import("../src/config.js")>("../src/config.js");
 		expect(resolveFffScanSettings({ fff: { enableHomeScanning: true } })).toEqual({
+			enabled: true,
 			enableHomeScanning: true,
 			enableRootScanning: false,
 		});

@@ -301,6 +301,7 @@ describe("piPrettyExtension integration", () => {
 		delete process.env.PRETTY_ENABLE_TOOLS;
 		delete process.env.PRETTY_FFF_HOME_SCAN;
 		delete process.env.PRETTY_FFF_ROOT_SCAN;
+		vi.stubEnv("PRETTY_FFF", "");
 		vi.stubEnv("PRETTY_CONFIG_DIR", "");
 		tools = new Map();
 		events = new Map();
@@ -424,6 +425,30 @@ describe("piPrettyExtension integration", () => {
 	});
 
 	// ---- find: SDK fallback (no FFF) -----------------------------------
+
+	describe("FFF disabled (#28)", () => {
+		it("PRETTY_FFF=0 builds no index, registers no FFF command and falls back to the SDK", async () => {
+			vi.stubEnv("PRETTY_FFF", "0");
+			const create = vi.fn().mockReturnValue({ ok: true, value: mkFinder() });
+			load(true, { FileFinder: { create } });
+			await events.get("session_start")!({}, { cwd: "/tmp/test" });
+
+			expect(create).not.toHaveBeenCalled();
+			expect(mockPi.registerCommand).not.toHaveBeenCalled();
+			await tools.get("find")!.execute("t1", { pattern: "*.ts" }, null, null, {});
+			await tools.get("grep")!.execute("t2", { pattern: "x" }, null, null, {});
+			expect(findExec).toHaveBeenCalledOnce();
+			expect(grepExec).toHaveBeenCalledOnce();
+		});
+
+		it("builds the index by default", async () => {
+			const create = vi.fn().mockReturnValue({ ok: true, value: mkFinder() });
+			load(true, { FileFinder: { create } });
+			await events.get("session_start")!({}, { cwd: "/tmp/test" });
+
+			expect(create).toHaveBeenCalledOnce();
+		});
+	});
 
 	describe("find — SDK fallback", () => {
 		it("delegates to SDK when FFF not loaded", async () => {
@@ -740,7 +765,7 @@ describe("piPrettyExtension integration", () => {
 
 		it("lets CLI flags opt into broad FFF scans", async () => {
 			const create = vi.fn().mockReturnValue({ ok: true, value: mkFinder() });
-			mockPi.getFlag.mockImplementation((name: string) => name === "pretty-fff-home-scan");
+			mockPi.getFlag.mockImplementation((name: string) => (name === "pretty-fff-home-scan" ? true : undefined));
 			load(true, { FileFinder: { create } });
 			const start = events.get("session_start")!;
 			await start({}, { cwd: "/tmp/test" });

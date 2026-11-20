@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `fff.enabled` (default `true`), and `PRETTY_FFF`: turn the FFF index off. Off, no native index or file watcher starts and `find`/`grep` use Pi's SDK fallback. In a directory with millions of files the index could take hundreds of MB per Pi session with no way to disable it ([#28](https://github.com/heyhuynhgiabuu/pi-pretty/issues/28)).
+
 ## [0.10.1] - 2026-11-20
 
 ### Fixed

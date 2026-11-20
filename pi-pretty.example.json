@@ -19,6 +19,7 @@
 	"maxPreviewLines": 80,
 	"cacheLimit": 128,
 	"fff": {
+		"enabled": true,
 		"enableHomeScanning": false,
 		"enableRootScanning": false
 	},

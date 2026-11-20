@@ -93,6 +93,8 @@ export interface ThinkingIndicatorConfig {
 }
 
 export interface FffConfig {
+	/** Build the FFF index at all. Off: find/grep use the SDK fallback and no native index or watcher starts. */
+	enabled?: boolean;
 	/** Allow FFF to index the user's home directory when Pi starts there. */
 	enableHomeScanning?: boolean;
 	/** Allow FFF to index the filesystem root when Pi starts there. */
@@ -100,6 +102,7 @@ export interface FffConfig {
 }
 
 export interface FffScanSettings {
+	enabled: boolean;
 	enableHomeScanning: boolean;
 	enableRootScanning: boolean;
 }
@@ -196,6 +199,7 @@ export function loadConfig(agentDir = getConfigDir()): PrettyConfig {
 		if (fff && typeof fff === "object") {
 			const fffConfig: FffConfig = {};
 			const src = fff as Record<string, unknown>;
+			if (typeof src.enabled === "boolean") fffConfig.enabled = src.enabled;
 			if (typeof src.enableHomeScanning === "boolean") fffConfig.enableHomeScanning = src.enableHomeScanning;
 			if (typeof src.enableRootScanning === "boolean") fffConfig.enableRootScanning = src.enableRootScanning;
 			if (Object.keys(fffConfig).length > 0) config.fff = fffConfig;
@@ -262,9 +266,11 @@ export function resolveFffScanSettings(
 		flagValue: boolean | string | undefined,
 		envName: string,
 		configValue: boolean | undefined,
-	): boolean => parseBooleanOverride(flagValue) ?? parseBooleanOverride(env[envName]) ?? configValue ?? false;
+		fallback = false,
+	): boolean => parseBooleanOverride(flagValue) ?? parseBooleanOverride(env[envName]) ?? configValue ?? fallback;
 
 	return {
+		enabled: resolve(undefined, "PRETTY_FFF", config.fff?.enabled, true),
 		enableHomeScanning: resolve(flags.enableHomeScanning, "PRETTY_FFF_HOME_SCAN", config.fff?.enableHomeScanning),
 		enableRootScanning: resolve(flags.enableRootScanning, "PRETTY_FFF_ROOT_SCAN", config.fff?.enableRootScanning),
 	};

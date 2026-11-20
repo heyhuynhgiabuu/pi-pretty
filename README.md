@@ -153,6 +153,7 @@ Place a JSON file alongside Pi's `settings.json` to customize pi-pretty. Every o
 	"maxPreviewLines": 80,
 	"cacheLimit": 128,
 	"fff": {
+		"enabled": true,
 		"enableHomeScanning": false,
 		"enableRootScanning": false
 	},
@@ -173,6 +174,7 @@ Place a JSON file alongside Pi's `settings.json` to customize pi-pretty. Every o
 | `maxHlChars` | positive int | `PRETTY_MAX_HL_CHARS` | `80000` |
 | `maxPreviewLines` | positive int | `PRETTY_MAX_PREVIEW_LINES` | `80` |
 | `cacheLimit` | positive int | `PRETTY_CACHE_LIMIT` | `128` |
+| `fff.enabled` | boolean; `false` starts no FFF index or file watcher, and `find`/`grep` use Pi's SDK fallback. Use it in very large directories, where the index can take hundreds of MB per session. `PRETTY_FFF=0 pi` turns it off for one session | `PRETTY_FFF` (`1`/`0`) | `true` |
 | `fff.enableHomeScanning` | boolean | `PRETTY_FFF_HOME_SCAN` (`1`/`0`) | `false` |
 | `fff.enableRootScanning` | boolean | `PRETTY_FFF_ROOT_SCAN` (`1`/`0`) | `false` |
 | `toolStyle` | `default` \| `claudecode` | — | `default` |
@@ -193,7 +195,7 @@ Place a JSON file alongside Pi's `settings.json` to customize pi-pretty. Every o
 | `thinkingIndicator.intervalMs` | integer ms, clamped to `>= 33`; higher renders fewer frames | `PRETTY_THINKING_INTERVAL_MS` | `33` (30 fps) |
 
 - Config values take priority over theme-provided backgrounds (`toolBg` / `toolErrorBg`).
-- Precedence for FFF scan scope is CLI flag > environment variable > `pi-pretty.json` > safe default (`false`).
+- Precedence for FFF scan scope is CLI flag > environment variable > `pi-pretty.json` > safe default (`false`). `fff.enabled` has no CLI flag: environment variable > `pi-pretty.json` > default (`true`).
 - All options except `background.*` are read once at startup; restart pi to apply changes to them (`background.*` applies live).
 - To override the config directory, set `PRETTY_CONFIG_DIR` env var.
 
