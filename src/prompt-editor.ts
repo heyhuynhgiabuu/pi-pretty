@@ -82,7 +82,8 @@ export function createPromptEditorClass(
 
 		override render(width: number): string[] {
 			this.bottomBorderLine = "";
-			const lines = super.render(width);
+			// Copy: pi-tui 1.6 lets components return a cached render array, so patching it in place could repeat the patch next frame.
+			const lines = [...super.render(width)];
 			if (lines.length < 2) return lines;
 
 			if (!this.isScrolled) {

@@ -869,8 +869,10 @@ function renderGrouped(container: any, width: number): string[] {
 	state.width = width;
 	const lines: string[] = [];
 	const layout: Array<{ component: AnyComponent; height: number }> = [];
+	const parts: string[][] = [];
 	const push = (component: AnyComponent, rendered: string[]): void => {
 		layout.push({ component, height: rendered.length });
+		parts.push(rendered);
 		for (const line of rendered) lines.push(line);
 	};
 	let index = 0;
@@ -954,6 +956,9 @@ function renderGrouped(container: any, width: number): string[] {
 		index = end;
 	}
 	container.mouseLayout = { width, children: layout };
+	// pi-tui 1.6 routes mouse events through `childLines`; without it the host maps clicks onto the
+	// ungrouped children and re-renders them to rebuild that layout.
+	container.childLines = { width, children: layout.map((entry) => entry.component), parts, lines };
 	return lines;
 }
 

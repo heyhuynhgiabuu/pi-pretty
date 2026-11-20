@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `toolStyle: "claudecode"` on pi 1.6.0: clicking a folded tool group did not expand the tool. pi-tui 1.6 routes `Container` mouse events through a new `childLines` layout, and the grouped render only wrote the older `mouseLayout`, so clicks landed on the ungrouped children and the host re-rendered them to rebuild the layout. The grouped render now writes both.
+- The prompt editor copies `Editor.render()` output before patching the prompt and border rows, since pi-tui 1.6 allows components to return a cached render array.
+
+### Changed
+
+- Development dependencies `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` are now 1.6.0.
+
 ## [0.10.0] - 2026-11-08
 
 ### Added
