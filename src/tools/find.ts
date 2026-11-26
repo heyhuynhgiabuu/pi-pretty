@@ -89,7 +89,7 @@ async function sdkFindAsFindResult(
 export function registerFindTool(
 	pi: ExtensionAPI,
 	cwd: string,
-	fffService: FffServiceWithCursor | null | undefined,
+	fffService: FffServiceWithCursor | (() => FffServiceWithCursor | null | undefined) | null | undefined,
 	sdkTool: SdkToolDef,
 	TextComp?: new (t?: string, x?: number, y?: number) => { setText(v: string): void },
 ): void {
@@ -109,7 +109,8 @@ export function registerFindTool(
 			const pattern = String(params.pattern ?? "");
 			const path = params.path ? String(params.path) : undefined;
 			const limit = params.limit;
-			const fff = !sdkTool.outputSchema && fffService?.isAvailable ? fffService.getFinder() : null;
+			const activeFff = typeof fffService === "function" ? fffService() : fffService;
+			const fff = !sdkTool.outputSchema && activeFff?.isAvailable ? activeFff.getFinder() : null;
 
 			if (fff) {
 				try {
@@ -124,7 +125,7 @@ export function registerFindTool(
 					if (searchResult.ok) {
 						const items = searchResult.value.items.slice(0, effectiveLimit);
 						const notices: string[] = [];
-						if (fffService?.partialIndex) notices.push(NOTICE_PARTIAL_FILE_INDEX);
+						if (activeFff?.partialIndex) notices.push(NOTICE_PARTIAL_FILE_INDEX);
 						if (items.length >= effectiveLimit) notices.push(`${effectiveLimit} limit reached`);
 						if (searchResult.value.totalMatched > items.length) {
 							notices.push(`${searchResult.value.totalMatched} total matches`);

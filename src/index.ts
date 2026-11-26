@@ -99,6 +99,10 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 			return ` ${USER_MESSAGE_ICON} ${markdown}`;
 		});
 	}
+	pi.registerFlag?.("pretty-no-fff", {
+		description: "Disable FFF file indexing and search acceleration",
+		type: "boolean",
+	});
 	pi.registerFlag?.("pretty-fff-home-scan", {
 		description: "Allow FFF to index the home directory when Pi starts there",
 		type: "boolean",
@@ -107,14 +111,6 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		description: "Allow FFF to index the filesystem root when Pi starts there",
 		type: "boolean",
 	});
-	const fffScanSettings = resolveFffScanSettings(config, {
-		enableHomeScanning: pi.getFlag?.("pretty-fff-home-scan"),
-		enableRootScanning: pi.getFlag?.("pretty-fff-root-scan"),
-	});
-	const fffInitOptions: FffInitOptions = {
-		enableHomeDirScanning: fffScanSettings.enableHomeScanning,
-		enableFsRootScanning: fffScanSettings.enableRootScanning,
-	};
 	const { disabledTools, enabledTools } = resolveToolSets(
 		envTools("PRETTY_DISABLE_TOOLS"),
 		envTools("PRETTY_ENABLE_TOOLS"),
@@ -130,7 +126,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	const cwd = process.cwd();
 
 	// ------------------------------------------------------------------
-	// FFF service init
+	// FFF service init (deferred to session_start so Pi 1.6 CLI flags apply first)
 	// ------------------------------------------------------------------
 	// Keep FFF independent from the Pi SDK import. Published extension installs
 	// run in Pi's isolated npm root; importing a nested Pi SDK at activation time
@@ -139,9 +135,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 
 	const maybeGetAgentDir = deps?.sdk?.getAgentDir;
 	const agentDir = typeof maybeGetAgentDir === "function" ? maybeGetAgentDir() : getDefaultAgentDir();
-	// Disabled means no service at all: creating one loads the native module, and find/grep already
-	// fall back to the SDK on null.
-	const fffService: FffService | null = fffScanSettings.enabled ? getSharedFffService(deps?.fffModule, agentDir) : null;
+	let fffService: FffService | null = null;
+	let fffCommandsRegistered = false;
 
 	// Text component for custom rendering (DI-friendly)
 	const TextComp = deps?.TextComponent;
@@ -150,12 +145,15 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 	// FFF commands
 	// ------------------------------------------------------------------
 
-	if (fffService) {
+	const registerFffCommands = (): void => {
+		if (fffCommandsRegistered) return;
+		fffCommandsRegistered = true;
+
 		pi.registerCommand("fff-health", {
 			description: "Show FFF file finder health and indexer status",
 			handler: async (_args: string, ctx: ExtensionCommandContext) => {
 				const fff = fffService;
-				if (!fff || !fff.isAvailable) {
+				if (!fff?.isAvailable) {
 					ctx.ui.notify("FFF not initialized", "warning");
 					return;
 				}
@@ -191,8 +189,8 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		pi.registerCommand("fff-rescan", {
 			description: "Trigger FFF to rescan files",
 			handler: async (_args: string, ctx: ExtensionCommandContext) => {
-				const fff = fffService!;
-				if (!fff.isAvailable) {
+				const fff = fffService;
+				if (!fff?.isAvailable) {
 					ctx.ui.notify("FFF not initialized", "warning");
 					return;
 				}
@@ -210,7 +208,7 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 				ctx.ui.notify("FFF rescan triggered", "info");
 			},
 		});
-	}
+	};
 
 	// ------------------------------------------------------------------
 	// Session lifecycle
@@ -337,7 +335,27 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 			await installIndicator(ctx);
 		}
 
-		if (!fffService) return;
+		// Pi applies CLI flag values after extension activation, so resolve FFF
+		// settings here rather than during factory load (#29).
+		const fffScanSettings = resolveFffScanSettings(config, {
+			disableFff: pi.getFlag?.("pretty-no-fff"),
+			enableHomeScanning: pi.getFlag?.("pretty-fff-home-scan"),
+			enableRootScanning: pi.getFlag?.("pretty-fff-root-scan"),
+		});
+		const fffInitOptions: FffInitOptions = {
+			enableHomeDirScanning: fffScanSettings.enableHomeScanning,
+			enableFsRootScanning: fffScanSettings.enableRootScanning,
+		};
+		// Disabled means no service at all: creating one loads the native module,
+		// and find/grep already fall back to the SDK on null.
+		if (!fffScanSettings.enabled) {
+			fffService = null;
+			return;
+		}
+		if (!fffService) {
+			fffService = getSharedFffService(deps?.fffModule, agentDir);
+		}
+		registerFffCommands();
 
 		try {
 			// Try dynamic import if sync require failed
@@ -578,9 +596,9 @@ export default async function piPrettyExtension(pi: ExtensionAPI, deps?: PiPrett
 		registerLsTool(toolPi, cwd, null, createLsTool(cwd), TextComp);
 	}
 	if (isToolEnabled("find") && createFindTool) {
-		registerFindTool(toolPi, cwd, fffService, createFindTool(cwd), TextComp);
+		registerFindTool(toolPi, cwd, () => fffService, createFindTool(cwd), TextComp);
 	}
 	if (isToolEnabled("grep") && createGrepTool) {
-		registerGrepTool(toolPi, cwd, fffService, createGrepTool(cwd), TextComp);
+		registerGrepTool(toolPi, cwd, () => fffService, createGrepTool(cwd), TextComp);
 	}
 }

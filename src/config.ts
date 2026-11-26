@@ -257,6 +257,7 @@ function parseBooleanOverride(value: unknown): boolean | undefined {
 export function resolveFffScanSettings(
 	config: Pick<PrettyConfig, "fff">,
 	flags: {
+		disableFff?: boolean | string;
 		enableHomeScanning?: boolean | string;
 		enableRootScanning?: boolean | string;
 	} = {},
@@ -269,8 +270,10 @@ export function resolveFffScanSettings(
 		fallback = false,
 	): boolean => parseBooleanOverride(flagValue) ?? parseBooleanOverride(env[envName]) ?? configValue ?? fallback;
 
+	const enabledFlag = parseBooleanOverride(flags.disableFff) === true ? false : undefined;
+
 	return {
-		enabled: resolve(undefined, "PRETTY_FFF", config.fff?.enabled, true),
+		enabled: resolve(enabledFlag, "PRETTY_FFF", config.fff?.enabled, true),
 		enableHomeScanning: resolve(flags.enableHomeScanning, "PRETTY_FFF_HOME_SCAN", config.fff?.enableHomeScanning),
 		enableRootScanning: resolve(flags.enableRootScanning, "PRETTY_FFF_ROOT_SCAN", config.fff?.enableRootScanning),
 	};

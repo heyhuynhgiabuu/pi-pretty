@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.3] - 2026-11-26
+
+### Added
+
+- `--pretty-no-fff` CLI flag to disable FFF file indexing and search acceleration from the command line ([#29](https://github.com/heyhuynhgiabuu/pi-pretty/issues/29)).
+
+### Fixed
+
+- **FFF CLI flags on Pi 1.6:** Deferred reading `pi.getFlag(...)` (`--pretty-no-fff`, `--pretty-fff-home-scan`, `--pretty-fff-root-scan`), FFF service creation, and `/fff-health` / `/fff-rescan` command registration to `session_start`, after Pi 1.6 applies CLI flag values. `find` and `grep` now resolve the active FFF service lazily ([#29](https://github.com/heyhuynhgiabuu/pi-pretty/issues/29)).
+- **Tool metadata & `outputSchema` contract:** Forwarded `constrainedSampling` and `outputSchema` on `grep`, `find`, and `ls` (plus `promptGuidelines` on `ls`), while bypassing the FFF fast path when `sdkTool.outputSchema` is set so host `structuredContent` is preserved.
+- **SDK `result.details` preservation:** Merged existing SDK `result.details` (e.g. `truncation`) instead of overwriting `result.details` in `read`, `grep`, `find`, and `ls`.
+- **`./` find globs:** Stripped leading `./` prefixes in `normalizeFindGlobPattern` and `buildGlobPattern` to match Pi 1.6 `find` semantics.
+
 ## [0.10.2] - 2026-11-20
 
 ### Added

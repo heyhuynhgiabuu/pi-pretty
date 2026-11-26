@@ -448,6 +448,25 @@ describe("piPrettyExtension integration", () => {
 
 			expect(create).toHaveBeenCalledOnce();
 		});
+
+		it("--pretty-no-fff set after activation disables FFF, registers no commands, and falls back to SDK (#29)", async () => {
+			const create = vi.fn().mockReturnValue({ ok: true, value: mkFinder() });
+			load(true, { FileFinder: { create } });
+			// Pi 1.6 applies CLI flag values after extension activation.
+			mockPi.getFlag.mockImplementation((name: string) => (name === "pretty-no-fff" ? true : undefined));
+			await events.get("session_start")!({}, { cwd: "/tmp/test" });
+
+			expect(mockPi.registerFlag).toHaveBeenCalledWith(
+				"pretty-no-fff",
+				expect.objectContaining({ type: "boolean" }),
+			);
+			expect(create).not.toHaveBeenCalled();
+			expect(mockPi.registerCommand).not.toHaveBeenCalled();
+			await tools.get("find")!.execute("t1", { pattern: "*.ts" }, null, null, {});
+			await tools.get("grep")!.execute("t2", { pattern: "x" }, null, null, {});
+			expect(findExec).toHaveBeenCalledOnce();
+			expect(grepExec).toHaveBeenCalledOnce();
+		});
 	});
 
 	describe("find — SDK fallback", () => {
@@ -763,10 +782,12 @@ describe("piPrettyExtension integration", () => {
 			}));
 		});
 
-		it("lets CLI flags opt into broad FFF scans", async () => {
+		it("lets CLI flags applied after activation opt into broad FFF scans (#29)", async () => {
 			const create = vi.fn().mockReturnValue({ ok: true, value: mkFinder() });
-			mockPi.getFlag.mockImplementation((name: string) => (name === "pretty-fff-home-scan" ? true : undefined));
 			load(true, { FileFinder: { create } });
+			// Pi 1.6 applies CLI flag values after extension activation, not before.
+			expect(mockPi.getFlag).not.toHaveBeenCalled();
+			mockPi.getFlag.mockImplementation((name: string) => (name === "pretty-fff-home-scan" ? true : undefined));
 			const start = events.get("session_start")!;
 			await start({}, { cwd: "/tmp/test" });
 

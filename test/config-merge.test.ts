@@ -201,6 +201,8 @@ describe("resolveFffScanSettings", () => {
 		expect(resolveFffScanSettings({ fff: { enabled: true } }).enabled).toBe(false);
 		vi.stubEnv("PRETTY_FFF", "1");
 		expect(resolveFffScanSettings({ fff: { enabled: false } }).enabled).toBe(true);
+		expect(resolveFffScanSettings({ fff: { enabled: true } }, { disableFff: true }).enabled).toBe(false);
+		expect(resolveFffScanSettings({ fff: { enabled: true } }, { disableFff: false }).enabled).toBe(true);
 	});
 
 	it("applies config, then environment, then CLI flags", async () => {

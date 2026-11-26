@@ -24,7 +24,7 @@ type Result = AgentToolResult<Record<string, unknown>>;
 export function registerGrepTool(
 	pi: ExtensionAPI,
 	cwd: string,
-	fffService: FffServiceWithCursor | null | undefined,
+	fffService: FffServiceWithCursor | (() => FffServiceWithCursor | null | undefined) | null | undefined,
 	sdkTool: SdkToolDef,
 	TextComp?: new (t?: string, x?: number, y?: number) => { setText(v: string): void },
 ): void {
@@ -51,9 +51,10 @@ export function registerGrepTool(
 
 			// FFF exposes smart-case, not the SDK's explicit ignoreCase mode, and
 			// does not synthesize host `structuredContent` when `outputSchema` is set.
-			if (fffService?.isAvailable && !sdkTool.outputSchema && !path && !glob && p.ignoreCase !== true) {
+			const activeFff = typeof fffService === "function" ? fffService() : fffService;
+			if (activeFff?.isAvailable && !sdkTool.outputSchema && !path && !glob && p.ignoreCase !== true) {
 				try {
-					const fff = fffService.getFinder();
+					const fff = activeFff.getFinder();
 					if (!fff) throw new Error("FFF finder not available");
 					const effectiveLimit = Math.max(1, limit);
 					const grepResult = fff.grep(pattern, {
@@ -66,9 +67,9 @@ export function registerGrepTool(
 					if (grepResult.ok) {
 						const grep = grepResult.value;
 						const items = grep.items.slice(0, effectiveLimit);
-						const cursorStore = fffService.getCursorStore();
+						const cursorStore = activeFff.getCursorStore();
 						const notices: string[] = [];
-						if (fffService.partialIndex) notices.push(NOTICE_PARTIAL_FILE_INDEX);
+						if (activeFff.partialIndex) notices.push(NOTICE_PARTIAL_FILE_INDEX);
 						if (items.length >= effectiveLimit) notices.push(`${effectiveLimit} limit reached`);
 						if (grep.regexFallbackError) notices.push(`Regex failed: ${grep.regexFallbackError}, used literal match`);
 						if (grep.nextCursor) {
