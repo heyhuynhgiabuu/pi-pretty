@@ -5,7 +5,7 @@
 
 /** Do not collapse double-star-slash-star to single star. */
 export function normalizeFindGlobPattern(pattern: string): string {
-	const p = pattern.trim();
+	const p = pattern.trim().replace(/^(?:\.\/)+/, "");
 	if (!p) return p;
 	if (p === "**/*") return "**/*";
 	if (p.includes("/") || p.startsWith("**/")) return p;

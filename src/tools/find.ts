@@ -30,7 +30,7 @@ function getText(result: Result): string {
 }
 
 function buildGlobPattern(pattern: string, path: string | undefined, basePath: string | null): string {
-	const raw = pattern.startsWith("/") ? pattern.slice(1) : pattern;
+	const raw = pattern.trim().replace(/^(?:\.\/|\/)+/, "");
 	const normalized = normalizeFindGlobPattern(raw);
 	let cleanPath = path ?? "";
 	if (cleanPath && isAbsolute(cleanPath) && basePath) {
@@ -76,6 +76,7 @@ async function sdkFindAsFindResult(
 	const prev = (result.details as FindDetails | undefined)?.notices ?? [];
 	const notices = [...parsed.notices, ...(Array.isArray(prev) ? prev : []), ...extraNotices];
 	result.details = {
+		...(result.details ?? {}),
 		_type: "findResult",
 		text: parsed.text,
 		pattern,
@@ -100,13 +101,15 @@ export function registerFindTool(
 		label: "Find",
 		description: sdkTool.description ?? "Find files matching a glob pattern",
 		parameters: sdkTool.parameters,
+		constrainedSampling: sdkTool.constrainedSampling,
+		outputSchema: sdkTool.outputSchema,
 		renderShell: "self",
 
 		execute: wrapExecuteWithMetrics(async (tid, params, sig, _upd, ctx: ExtensionContext) => {
 			const pattern = String(params.pattern ?? "");
 			const path = params.path ? String(params.path) : undefined;
 			const limit = params.limit;
-			const fff = fffService?.isAvailable ? fffService.getFinder() : null;
+			const fff = !sdkTool.outputSchema && fffService?.isAvailable ? fffService.getFinder() : null;
 
 			if (fff) {
 				try {

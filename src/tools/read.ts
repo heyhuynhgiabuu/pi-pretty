@@ -79,6 +79,7 @@ export function registerReadTool(
 			const imageBlock = (result.content as any[])?.find((c: any) => c.type === "image");
 			if (imageBlock) {
 				result.details = {
+					...(result.details ?? {}),
 					_type: "readImage",
 					filePath: String(p.path ?? ""),
 				} as ReadDetails;
@@ -87,6 +88,7 @@ export function registerReadTool(
 
 			const tc = normalizeLineEndings(getText(result));
 			result.details = {
+				...(result.details ?? {}),
 				_type: "readFile",
 				filePath: String(p.path ?? ""),
 				content: tc,

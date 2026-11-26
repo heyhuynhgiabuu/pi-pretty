@@ -14,6 +14,11 @@ describe("normalizeFindGlobPattern", () => {
 	it("leaves path-qualified globs", () => {
 		expect(normalizeFindGlobPattern("src/**/*.ts")).toBe("src/**/*.ts");
 	});
+
+	it("strips leading ./ prefixes to match Pi 1.6 find semantics", () => {
+		expect(normalizeFindGlobPattern("./src/*.ts")).toBe("src/*.ts");
+		expect(normalizeFindGlobPattern("./*.ts")).toBe("**/*.ts");
+	});
 });
 
 describe("isLikelyGlobPattern", () => {

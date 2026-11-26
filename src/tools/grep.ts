@@ -36,6 +36,8 @@ export function registerGrepTool(
 		label: "Grep",
 		description: sdkTool.description ?? "Search file contents by pattern",
 		parameters: sdkTool.parameters,
+		constrainedSampling: sdkTool.constrainedSampling,
+		outputSchema: sdkTool.outputSchema,
 		renderShell: "self",
 
 		execute: wrapExecuteWithMetrics(async (tid, params, sig, _upd, ctx: ExtensionContext) => {
@@ -47,10 +49,9 @@ export function registerGrepTool(
 			const limit = typeof p.limit === "number" ? p.limit : 200;
 			const literal = p.literal === true;
 
-			// FFF exposes smart-case, not the SDK's explicit ignoreCase mode.
-			// Fall back when callers request case-insensitive matching so the SDK
-			// remains the semantic source of truth for that option.
-			if (fffService?.isAvailable && !path && !glob && p.ignoreCase !== true) {
+			// FFF exposes smart-case, not the SDK's explicit ignoreCase mode, and
+			// does not synthesize host `structuredContent` when `outputSchema` is set.
+			if (fffService?.isAvailable && !sdkTool.outputSchema && !path && !glob && p.ignoreCase !== true) {
 				try {
 					const fff = fffService.getFinder();
 					if (!fff) throw new Error("FFF finder not available");
@@ -101,6 +102,7 @@ export function registerGrepTool(
 					.join("\n") ?? "";
 			const normalizedText = tc.trim() === "No matches found" ? "" : tc;
 			result.details = {
+				...(result.details ?? {}),
 				_type: "grepResult",
 				text: normalizedText,
 				pattern,

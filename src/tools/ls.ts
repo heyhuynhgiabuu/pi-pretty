@@ -36,12 +36,16 @@ export function registerLsTool(
 		description: sdkTool.description ?? "List directory contents",
 		parameters: sdkTool.parameters,
 		promptSnippet: sdkTool.promptSnippet,
+		promptGuidelines: sdkTool.promptGuidelines,
+		constrainedSampling: sdkTool.constrainedSampling,
+		outputSchema: sdkTool.outputSchema,
 		renderShell: "self",
 
 		execute: wrapExecuteWithMetrics(async (tid, params, sig, _upd, ctx: ExtensionContext) => {
 			const result = (await sdkTool.execute(tid, params, sig, undefined, ctx)) as Result;
 			const tc = getText(result);
 			result.details = {
+				...(result.details ?? {}),
 				_type: "lsResult",
 				text: tc,
 				path: String((params as any).path ?? ""),
